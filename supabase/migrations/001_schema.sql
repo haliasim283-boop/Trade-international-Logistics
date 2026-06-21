@@ -5,14 +5,6 @@
 -- ================================================================
 
 -- ----------------------------------------------------------------
--- 0. Helper function: get current user's role (bypasses RLS)
--- ----------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.get_my_role()
-RETURNS TEXT AS $$
-  SELECT role FROM public.profiles WHERE id = auth.uid();
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
-
--- ----------------------------------------------------------------
 -- 1. Sequence for invoice numbers
 -- ----------------------------------------------------------------
 CREATE SEQUENCE IF NOT EXISTS invoice_number_seq START 1 INCREMENT 1;
@@ -31,6 +23,12 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Helper function: get current user's role (must be AFTER profiles table)
+CREATE OR REPLACE FUNCTION public.get_my_role()
+RETURNS TEXT AS $$
+  SELECT role FROM public.profiles WHERE id = auth.uid();
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
 
 -- 2.2 company_settings (singleton row; id must = 1)
 CREATE TABLE IF NOT EXISTS company_settings (
