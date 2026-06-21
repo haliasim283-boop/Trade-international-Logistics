@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 font-sans;
+  }
+
+  /* Monospace tabular figures for all number cells */
+  td.num, th.num {
+    font-variant-numeric: tabular-nums;
+    @apply font-mono text-right;
+  }
+}
+
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Print: hide sidebar / topbar, keep content full-width */
+@media print {
+  .no-print { display: none !important; }
+  .print-full { width: 100% !important; margin: 0 !important; }
+}
