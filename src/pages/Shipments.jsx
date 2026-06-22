@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Plus, Download, Pencil, Trash2, FileText } from 'lucide-react'
+import { Plus, Download, Pencil, Trash2, FileText, Upload } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Card, CardBody } from '../components/ui/Card'
@@ -8,24 +8,31 @@ import { Spinner } from '../components/ui/Spinner'
 import { Table, Thead, Th, Tbody, Tr, Td, Tfoot } from '../components/ui/Table'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { ShipmentFormModal } from '../components/shipments/ShipmentFormModal'
+import { ShipmentImportModal } from '../components/shipments/ShipmentImportModal'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_ROW = {
-  'Planned':    '',
-  'Booked':     'bg-amber-50',
-  'AWB Issued': 'bg-blue-50/60',
-  'Departed':   'bg-green-50',
+  'PNDNG':     '',
+  'AP-BLZ':    'bg-amber-50',
+  'BKD':       'bg-blue-50/60',
+  'CNCLD':     'bg-red-50',
+  'NO SHOW':   'bg-orange-50',
+  'OFFLOADED': 'bg-purple-50',
+  'SHPD':      'bg-green-50',
 }
 
 const STATUS_BADGE = {
-  'Planned':    'bg-gray-100 text-gray-600',
-  'Booked':     'bg-amber-100 text-amber-700',
-  'AWB Issued': 'bg-blue-100 text-blue-700',
-  'Departed':   'bg-green-100 text-green-700',
+  'PNDNG':     'bg-gray-100 text-gray-600',
+  'AP-BLZ':    'bg-amber-100 text-amber-700',
+  'BKD':       'bg-blue-100 text-blue-700',
+  'CNCLD':     'bg-red-100 text-red-700',
+  'NO SHOW':   'bg-orange-100 text-orange-700',
+  'OFFLOADED': 'bg-purple-100 text-purple-700',
+  'SHPD':      'bg-green-100 text-green-700',
 }
 
-const STATUSES = ['Planned', 'Booked', 'AWB Issued', 'Departed']
+const STATUSES = ['PNDNG', 'AP-BLZ', 'BKD', 'CNCLD', 'NO SHOW', 'OFFLOADED', 'SHPD']
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -88,8 +95,9 @@ export default function Shipments() {
   const [saving,         setSaving]         = useState(false)
 
   // ── Modal state ──
-  const [formModal, setFormModal] = useState(null)   // { mode, shipment? }
-  const [deleteId,  setDeleteId]  = useState(null)
+  const [formModal,   setFormModal]   = useState(null)   // { mode, shipment? }
+  const [deleteId,    setDeleteId]    = useState(null)
+  const [showImport,  setShowImport]  = useState(false)
 
   // ── Filter state ──
   const [search,        setSearch]        = useState('')
@@ -102,7 +110,7 @@ export default function Shipments() {
 
   // ── Bulk action state ──
   const [selected,   setSelected]   = useState(new Set())
-  const [bulkStatus, setBulkStatus] = useState('Departed')
+  const [bulkStatus, setBulkStatus] = useState('SHPD')
 
   // ── Load ────────────────────────────────────────────────────────────────
 
@@ -270,9 +278,14 @@ export default function Shipments() {
             <h1 className="text-2xl font-bold text-navy tracking-tight">Master Shipment Log</h1>
             <p className="text-sm text-gray-500 mt-0.5">All shipments — the source of truth for all reports.</p>
           </div>
-          <Button onClick={() => setFormModal({ mode: 'add' })}>
-            <Plus className="w-4 h-4" />Add Shipment
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setShowImport(true)}>
+              <Upload className="w-4 h-4" />Import Excel
+            </Button>
+            <Button onClick={() => setFormModal({ mode: 'add' })}>
+              <Plus className="w-4 h-4" />Add Shipment
+            </Button>
+          </div>
         </div>
 
         {/* Filters */}
@@ -486,6 +499,15 @@ export default function Shipments() {
           message="This shipment will be permanently deleted. Any linked invoice data is kept."
           onConfirm={handleDelete}
           onCancel={() => setDeleteId(null)}
+        />
+      )}
+
+      {showImport && (
+        <ShipmentImportModal
+          airlines={airlines}
+          clients={clients}
+          onImported={() => { loadAll() }}
+          onClose={() => setShowImport(false)}
         />
       )}
     </>

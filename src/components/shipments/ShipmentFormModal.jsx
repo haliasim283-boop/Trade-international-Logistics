@@ -33,7 +33,7 @@ function pkr(n) {
   return 'PKR ' + r2(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-const STATUSES = ['Planned', 'Booked', 'AWB Issued', 'Departed']
+const STATUSES = ['PNDNG', 'AP-BLZ', 'BKD', 'CNCLD', 'NO SHOW', 'OFFLOADED', 'SHPD']
 
 const EMPTY = {
   flight_date: new Date().toISOString().slice(0, 10),
@@ -44,7 +44,7 @@ const EMPTY = {
   awb_self_uploaded: false,
   form_e_usd_value: 0, form_e_pkr_rate: 0, form_e_supplier_id: '',
   amendment_charges: 0, cass_airline_rate: '',
-  clearing_agent_id: '', status: 'Planned', notes: '',
+  clearing_agent_id: '', status: 'PNDNG', notes: '',
 }
 
 export function ShipmentFormModal({

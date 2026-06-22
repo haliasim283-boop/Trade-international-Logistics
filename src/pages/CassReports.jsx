@@ -12,6 +12,7 @@ import { ConfirmDialog } from '../components/ui/Modal'
 import { CassPaymentModal } from '../components/cass/CassPaymentModal'
 import { CassAdjustmentModal } from '../components/cass/CassAdjustmentModal'
 import { printCassReport } from '../components/cass/CassPrintView'
+import { ManageAirlinesModal } from '../components/cass/ManageAirlinesModal'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -119,16 +120,20 @@ export default function CassReports() {
   const [deletePayId,       setDeletePayId]       = useState(null)
   const [deleteAdjId,       setDeleteAdjId]       = useState(null)
   const [changingStatus,    setChangingStatus]    = useState(false)
+  const [showManageAirlines, setShowManageAirlines] = useState(false)
 
   // ── Load airlines + settings once ──────────────────────────────────────────
+  const loadAirlines = useCallback(async () => {
+    if (!supabase) return
+    const { data } = await supabase.from('airlines').select('*').eq('is_active', true).order('name')
+    const list = data ?? []
+    setAirlines(list)
+    if (!selectedAirlineId && list.length > 0) setSelectedAirlineId(list[0].id)
+  }, [selectedAirlineId])
+
   useEffect(() => {
     if (!supabase) return
-    supabase.from('airlines').select('*').eq('is_active', true).order('name')
-      .then(({ data }) => {
-        const list = data ?? []
-        setAirlines(list)
-        if (!selectedAirlineId && list.length > 0) setSelectedAirlineId(list[0].id)
-      })
+    loadAirlines()
     supabase.from('company_settings').select('*').eq('id', 1).single()
       .then(({ data }) => setSettings(data))
   }, [])                // eslint-disable-line react-hooks/exhaustive-deps
@@ -292,11 +297,16 @@ export default function CassReports() {
           <h1 className="text-2xl font-bold text-navy">Airline Sales Reports (CASS)</h1>
           <p className="text-sm text-gray-500 mt-0.5">Fortnightly CASS billing reports per airline</p>
         </div>
-        {airline && period && (
-          <Button onClick={handlePrint} variant="secondary">
-            <Printer className="w-4 h-4" /> Print / PDF
+        <div className="flex items-center gap-2">
+          <Button onClick={() => setShowManageAirlines(true)} variant="secondary">
+            <Plus className="w-4 h-4" /> Manage Airlines
           </Button>
-        )}
+          {airline && period && (
+            <Button onClick={handlePrint} variant="secondary">
+              <Printer className="w-4 h-4" /> Print / PDF
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* ── Selectors ── */}
@@ -753,6 +763,13 @@ export default function CassReports() {
           message="This adjustment will be permanently removed."
           onConfirm={deleteAdj}
           onCancel={() => setDeleteAdjId(null)}
+        />
+      )}
+
+      {showManageAirlines && (
+        <ManageAirlinesModal
+          onClose={() => setShowManageAirlines(false)}
+          onChanged={loadAirlines}
         />
       )}
     </div>

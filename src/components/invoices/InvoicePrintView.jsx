@@ -139,7 +139,7 @@ function buildPrintHTML(invoice, clientName, clientCity) {
   <div class="header">
     <div class="header-top">
       <div>
-        <div class="company-name">Trade International Clearing Agency</div>
+        <div class="company-name">Trade International Logistics</div>
         <div class="company-addr">
           Room No. 4, 1st Floor, Khair Mohammad Plaza<br>
           Opp. State Bank of Pakistan, 8-A Saddar Road<br>
@@ -197,7 +197,7 @@ function buildPrintHTML(invoice, clientName, clientCity) {
   ${invoice.notes ? `<div class="notes"><strong>Notes:</strong> ${invoice.notes}</div>` : ''}
 
   <div class="footer">
-    <div class="footer-payable">Make all checks payable to Trade International Clearing Agency</div>
+    <div class="footer-payable">Make all checks payable to Trade International Logistics</div>
     <div class="footer-bank">
       <span class="iban">PK49SIND0008016416561000</span> &nbsp;|&nbsp; <strong>SINDH BANK</strong> &nbsp;|&nbsp; TRADE INTL
     </div>
@@ -263,7 +263,7 @@ export function InvoicePrintView({ invoice, clientName, clientCity, onClose }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <div style={{ fontSize: 20, fontWeight: 'bold', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-                Trade International Clearing Agency
+                Trade International Logistics
               </div>
               <div style={{ fontSize: 10, marginTop: 6, opacity: 0.85, lineHeight: 1.75 }}>
                 Room No. 4, 1st Floor, Khair Mohammad Plaza<br />
@@ -411,7 +411,7 @@ export function InvoicePrintView({ invoice, clientName, clientCity, onClose }) {
         {/* ── Footer ──────────────────────────────────────────────────── */}
         <div style={{ margin: '0 32px', padding: '18px 0 28px', borderTop: '2px solid #1a2744' }}>
           <div style={{ fontWeight: 'bold', color: '#111', marginBottom: 10, fontSize: 12 }}>
-            Make all checks payable to Trade International Clearing Agency
+            Make all checks payable to Trade International Logistics
           </div>
           <div style={{ fontSize: 11, color: '#374151', lineHeight: 2.2 }}>
             <div>

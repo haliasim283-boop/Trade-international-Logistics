@@ -365,7 +365,7 @@ async function importShipments(rows, mapping) {
       form_e_usd_value:  num('form_e_usd_value'),
       form_e_pkr_rate:   num('form_e_pkr_rate'),
       cass_airline_rate: num('cass_airline_rate'),
-      status:            get('status') || 'Departed',
+      status:            get('status') || 'SHPD',
     })
     if (error) { errors.push(`Row ${i + 2}: ${error.message}`); continue }
     ok++

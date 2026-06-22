@@ -171,7 +171,7 @@ export default function Dashboard() {
       setKpis({ outstandingReceivables, cassPayable, formEPayable, clearPayable })
 
       // ── Status counts ───────────────────────────────────────────────────────
-      const sc = { Planned: 0, Booked: 0, 'AWB Issued': 0, Departed: 0 }
+      const sc = { PNDNG: 0, 'AP-BLZ': 0, BKD: 0, CNCLD: 0, 'NO SHOW': 0, OFFLOADED: 0, SHPD: 0 }
       for (const s of (allShips || [])) { if (sc[s.status] !== undefined) sc[s.status]++ }
       setStatusCounts(sc)
 
@@ -225,17 +225,23 @@ export default function Dashboard() {
   useEffect(() => { load() }, [load])
 
   const STATUS_TILES = [
-    { status: 'Planned',    color: 'bg-gray-100 text-gray-700' },
-    { status: 'Booked',     color: 'bg-yellow-100 text-yellow-800' },
-    { status: 'AWB Issued', color: 'bg-blue-100 text-blue-800' },
-    { status: 'Departed',   color: 'bg-green-100 text-green-800' },
+    { status: 'PNDNG',     color: 'bg-gray-100 text-gray-700' },
+    { status: 'AP-BLZ',    color: 'bg-amber-100 text-amber-800' },
+    { status: 'BKD',       color: 'bg-blue-100 text-blue-800' },
+    { status: 'CNCLD',     color: 'bg-red-100 text-red-700' },
+    { status: 'NO SHOW',   color: 'bg-orange-100 text-orange-800' },
+    { status: 'OFFLOADED', color: 'bg-purple-100 text-purple-800' },
+    { status: 'SHPD',      color: 'bg-green-100 text-green-800' },
   ]
 
   const STATUS_DOT = {
-    'Planned':    'bg-gray-400',
-    'Booked':     'bg-yellow-500',
-    'AWB Issued': 'bg-blue-500',
-    'Departed':   'bg-green-500',
+    'PNDNG':     'bg-gray-400',
+    'AP-BLZ':    'bg-amber-500',
+    'BKD':       'bg-blue-500',
+    'CNCLD':     'bg-red-500',
+    'NO SHOW':   'bg-orange-500',
+    'OFFLOADED': 'bg-purple-500',
+    'SHPD':      'bg-green-500',
   }
 
   if (!supabase) return <div className="p-6 text-danger text-sm">Supabase not configured.</div>
@@ -509,10 +515,13 @@ export default function Dashboard() {
                         <td className="px-3 py-2.5 text-gray-500 text-xs">{s.airlines?.name}</td>
                         <td className="px-3 py-2.5">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                            s.status === 'Departed'   ? 'bg-green-100 text-green-800' :
-                            s.status === 'AWB Issued' ? 'bg-blue-100 text-blue-800' :
-                            s.status === 'Booked'     ? 'bg-yellow-100 text-yellow-800' :
-                                                        'bg-gray-100 text-gray-700'
+                            s.status === 'SHPD'      ? 'bg-green-100 text-green-800' :
+                            s.status === 'BKD'       ? 'bg-blue-100 text-blue-800' :
+                            s.status === 'AP-BLZ'    ? 'bg-amber-100 text-amber-800' :
+                            s.status === 'CNCLD'     ? 'bg-red-100 text-red-700' :
+                            s.status === 'NO SHOW'   ? 'bg-orange-100 text-orange-800' :
+                            s.status === 'OFFLOADED' ? 'bg-purple-100 text-purple-800' :
+                                                       'bg-gray-100 text-gray-700'
                           }`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[s.status]}`}></span>
                             {s.status}
