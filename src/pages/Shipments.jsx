@@ -397,8 +397,8 @@ export default function Shipments() {
                   <Th>Client</Th>
                   <Th>Route</Th>
                   <Th className="text-right">PCS / KGS</Th>
-                  <Th className="text-right">Net Rate</Th>
-                  <Th className="text-right">Total Receivable</Th>
+                  <Th className="text-right">Net Rate (USD/kg)</Th>
+                  <Th className="text-right">Total Receivable (PKR)</Th>
                   <Th>Status</Th>
                   <Th>Actions</Th>
                 </tr>
@@ -424,7 +424,7 @@ export default function Shipments() {
                     <Td className="text-right font-mono text-sm whitespace-nowrap">
                       {s.pieces} / {Number(s.chargeable_weight || 0).toFixed(3)}
                     </Td>
-                    <Td className="text-right font-mono">{fmt(s.net_rate)}</Td>
+                    <Td className="text-right font-mono">USD {fmt(s.net_rate)}</Td>
                     <Td className="text-right font-mono font-semibold text-gray-800 whitespace-nowrap">
                       PKR {fmt(s.total_receivable)}
                     </Td>

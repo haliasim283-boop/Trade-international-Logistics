@@ -463,3 +463,40 @@ INSERT INTO company_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 -- 5. Edit Haider's profile: set role = 'Manager', full_name = 'Haider Ali'
 -- Sample party & shipment data is seeded in Phase 3.
 -- ================================================================
+
+-- ================================================================
+-- MIGRATION: USD Rate Fields (run separately in Supabase SQL Editor
+-- if the main schema was already applied)
+-- ================================================================
+
+-- Airlines: USD commission per kg + AWB airline upload charges
+ALTER TABLE airlines
+  ADD COLUMN IF NOT EXISTS cass_commission_usd_per_kg NUMERIC(10,4) NOT NULL DEFAULT 0.0000,
+  ADD COLUMN IF NOT EXISTS awb_airline_upload_charges NUMERIC(10,4) NOT NULL DEFAULT 0.0000;
+
+-- Shipments: per-shipment USD→PKR exchange rate
+-- Default 1.0 so existing PKR-denominated rows stay unchanged
+ALTER TABLE shipments
+  ADD COLUMN IF NOT EXISTS pkr_exchange_rate NUMERIC(10,4) NOT NULL DEFAULT 1.0000;
+
+-- Recreate computed columns to incorporate PKR conversion
+-- (Existing rows keep pkr_exchange_rate = 1 → calculations unchanged)
+ALTER TABLE shipments DROP COLUMN IF EXISTS freight_amount;
+ALTER TABLE shipments ADD COLUMN freight_amount NUMERIC(14,2) GENERATED ALWAYS AS (
+  ROUND(chargeable_weight * net_rate * pkr_exchange_rate, 2)
+) STORED;
+
+ALTER TABLE shipments DROP COLUMN IF EXISTS cass_freight_total;
+ALTER TABLE shipments ADD COLUMN cass_freight_total NUMERIC(14,2) GENERATED ALWAYS AS (
+  ROUND(chargeable_weight * cass_airline_rate * pkr_exchange_rate, 2)
+) STORED;
+
+ALTER TABLE shipments DROP COLUMN IF EXISTS total_receivable;
+ALTER TABLE shipments ADD COLUMN total_receivable NUMERIC(14,2) GENERATED ALWAYS AS (
+  ROUND(chargeable_weight * net_rate * pkr_exchange_rate, 2)
+  + clearing_charges
+  + isc_tax
+  + other_charges
+  + ROUND(COALESCE(form_e_usd_value, 0) * COALESCE(form_e_pkr_rate, 0), 2)
+  + amendment_charges
+) STORED;

@@ -116,7 +116,7 @@ export default function Dashboard() {
         supabase.from('clearing_agent_payments').select('amount'),
         // Current fortnight shipments (for CASS estimate)
         supabase.from('shipments')
-          .select('cass_freight_total,airlines(cass_commission_pct)')
+          .select('chargeable_weight,pkr_exchange_rate,airlines(cass_commission_usd_per_kg)')
           .gte('flight_date', ft.from).lte('flight_date', ft.to),
         // CASS payments this fortnight
         supabase.from('cass_payments')
@@ -149,9 +149,10 @@ export default function Dashboard() {
 
       // ── KPI 2: CASS payable (current fortnight estimate) ───────────────────
       const cassGross = r2((cassShipsFt || []).reduce((s, r) => {
-        const net = Number(r.cass_freight_total || 0)
-        const comm = net * Number(r.airlines?.cass_commission_pct || 0) / 100
-        return s + net - comm
+        const w    = Number(r.chargeable_weight || 0)
+        const rate = Number(r.pkr_exchange_rate || 1)
+        const comm = w * Number(r.airlines?.cass_commission_usd_per_kg || 0) * rate
+        return s + comm
       }, 0))
       const cassPaidFt = r2((cassPmtsFt || []).reduce((s, r) => s + Number(r.amount), 0))
       const cassPayable = Math.max(0, r2(cassGross - cassPaidFt))

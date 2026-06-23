@@ -117,7 +117,7 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
       <div class="report-title">AIRLINE SALES REPORT (CASS)</div>
       <div class="period">${airline?.name ?? ''} &mdash; ${period.label}</div>
       <div class="period">Period: ${fmtDate(period.start)} &ndash; ${fmtDate(period.end)}</div>
-      <div class="iata">Airline Prefix: ${airline?.iata_prefix ?? ''} &nbsp;|&nbsp; Commission: ${airline?.cass_commission_pct ?? 5}%</div>
+      <div class="iata">Airline Prefix: ${airline?.iata_prefix ?? ''} &nbsp;|&nbsp; Commission: USD ${Number(airline?.cass_commission_usd_per_kg ?? 0).toFixed(4)}/kg</div>
     </div>
   </div>
 
@@ -170,7 +170,7 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
   <div class="recap">
     <table>
       <tr><td>Total Commissionable Sales (Weight Charges)</td><td>PKR ${fmt(recap.totalPWC)}</td></tr>
-      <tr><td class="recap-sub">&nbsp;&nbsp;Less: Commission Due Agent (${airline?.cass_commission_pct ?? 5}%)</td><td>(${fmt(recap.totalCommission)})</td></tr>
+      <tr><td class="recap-sub">&nbsp;&nbsp;Less: Commission Due Agent (USD ${Number(airline?.cass_commission_usd_per_kg ?? 0).toFixed(4)}/kg)</td><td>(${fmt(recap.totalCommission)})</td></tr>
       <tr><td class="recap-sub">&nbsp;&nbsp;Less: Other Charges Due Agent</td><td>(${fmt(recap.totalOCAgent)})</td></tr>
       <tr class="wht-row"><td class="recap-sub">&nbsp;&nbsp;Less: WHT @ ${settings?.cass_wht_rate ?? 12}%</td><td>(${fmt(recap.totalWHT)})</td></tr>
       ${adjustments.map((a) => `<tr><td class="recap-sub">&nbsp;&nbsp;${a.description}</td><td class="${Number(a.amount) < 0 ? 'credit' : ''}">${Number(a.amount) >= 0 ? '+' : ''}${fmt(a.amount)}</td></tr>`).join('')}

@@ -23,8 +23,8 @@ function num(n) {
 }
 
 const EMPTY = {
-  name: '', iata_prefix: '', cass_commission_pct: 5,
-  other_charges_standard: 0, other_charges_self_upload: 0,
+  name: '', iata_prefix: '', cass_commission_usd_per_kg: 0,
+  other_charges_self_upload: 0, awb_airline_upload_charges: 0,
   bta_rate_per_awb: 0, default_cass_rate_notes: '',
 }
 
@@ -53,9 +53,9 @@ export function ManageAirlinesModal({ onClose, onChanged }) {
   function openEdit(r) {
     setForm({
       name: r.name, iata_prefix: r.iata_prefix,
-      cass_commission_pct: r.cass_commission_pct,
-      other_charges_standard: r.other_charges_standard,
-      other_charges_self_upload: r.other_charges_self_upload,
+      cass_commission_usd_per_kg: r.cass_commission_usd_per_kg ?? 0,
+      other_charges_self_upload: r.other_charges_self_upload ?? 0,
+      awb_airline_upload_charges: r.awb_airline_upload_charges ?? 0,
       bta_rate_per_awb: r.bta_rate_per_awb,
       default_cass_rate_notes: r.default_cass_rate_notes ?? '',
     })
@@ -117,9 +117,9 @@ export function ManageAirlinesModal({ onClose, onChanged }) {
                   <tr>
                     <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-600 uppercase tracking-wide">Airline Name</th>
                     <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-600 uppercase tracking-wide">Prefix</th>
-                    <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-600 uppercase tracking-wide">Commission</th>
-                    <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-600 uppercase tracking-wide">OC Std</th>
-                    <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-600 uppercase tracking-wide">OC Upload</th>
+                    <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-600 uppercase tracking-wide">Commission (USD/kg)</th>
+                    <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-600 uppercase tracking-wide">Self-Upload (USD)</th>
+                    <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-600 uppercase tracking-wide">AWB Upload (USD)</th>
                     <th className="text-right px-3 py-2.5 text-xs font-semibold text-gray-600 uppercase tracking-wide">BTA/AWB</th>
                     <th className="px-3 py-2.5 w-20"></th>
                   </tr>
@@ -133,9 +133,9 @@ export function ManageAirlinesModal({ onClose, onChanged }) {
                           {r.iata_prefix}
                         </span>
                       </td>
-                      <td className="px-3 py-2.5 text-right text-gray-700">{r.cass_commission_pct}%</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-gray-600 text-xs">PKR {num(r.other_charges_standard)}</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-gray-600 text-xs">PKR {num(r.other_charges_self_upload)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-gray-700 text-xs">USD {num(r.cass_commission_usd_per_kg ?? 0)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-gray-600 text-xs">USD {num(r.other_charges_self_upload ?? 0)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-gray-600 text-xs">USD {num(r.awb_airline_upload_charges ?? 0)}</td>
                       <td className="px-3 py-2.5 text-right font-mono text-gray-600 text-xs">PKR {num(r.bta_rate_per_awb)}</td>
                       <td className="px-3 py-2.5">
                         <div className="flex gap-1 justify-end">
@@ -183,17 +183,17 @@ export function ManageAirlinesModal({ onClose, onChanged }) {
               </Field>
             </div>
             <div className="grid grid-cols-3 gap-4">
-              <Field label="CASS Commission %">
-                <input type="number" step="0.01" min="0" className={INP}
-                  value={form.cass_commission_pct} onChange={setN('cass_commission_pct')} />
+              <Field label="CASS Commission (USD/kg — per 15-day period)">
+                <input type="number" step="0.0001" min="0" className={INP}
+                  value={form.cass_commission_usd_per_kg} onChange={setN('cass_commission_usd_per_kg')} />
               </Field>
-              <Field label="Other Charges — Standard (PKR)">
-                <input type="number" step="0.01" min="0" className={INP}
-                  value={form.other_charges_standard} onChange={setN('other_charges_standard')} />
-              </Field>
-              <Field label="Other Charges — Self-Upload (PKR)">
+              <Field label="Self-Upload Charges (USD — agent uploads AWB)">
                 <input type="number" step="0.01" min="0" className={INP}
                   value={form.other_charges_self_upload} onChange={setN('other_charges_self_upload')} />
+              </Field>
+              <Field label="AWB Airline Upload Charges (USD — airline uploads)">
+                <input type="number" step="0.01" min="0" className={INP}
+                  value={form.awb_airline_upload_charges} onChange={setN('awb_airline_upload_charges')} />
               </Field>
             </div>
             <Field label="BTA Rate per AWB (PKR)">

@@ -39,7 +39,7 @@ const EMPTY = {
   flight_date: new Date().toISOString().slice(0, 10),
   awb_number: '', airline_id: '', client_id: '',
   origin: '', destination: '', pieces: 1,
-  chargeable_weight: '', net_rate: '',
+  chargeable_weight: '', net_rate: '', pkr_exchange_rate: 280,
   clearing_charges: 0, isc_tax: 0, other_charges: 0,
   awb_self_uploaded: false,
   form_e_usd_value: 0, form_e_pkr_rate: 0, form_e_supplier_id: '',
@@ -65,6 +65,7 @@ export function ShipmentFormModal({
         pieces:             shipment.pieces ?? 1,
         chargeable_weight:  shipment.chargeable_weight ?? '',
         net_rate:           shipment.net_rate ?? '',
+        pkr_exchange_rate:  shipment.pkr_exchange_rate ?? 280,
         clearing_charges:   shipment.clearing_charges ?? 0,
         isc_tax:            shipment.isc_tax ?? 0,
         other_charges:      shipment.other_charges ?? 0,
@@ -83,7 +84,8 @@ export function ShipmentFormModal({
   })
 
   // ── Computed (never stored; the DB computes GENERATED columns) ──────────
-  const freightAmount   = r2(parseFloat(form.chargeable_weight || 0) * parseFloat(form.net_rate || 0))
+  const pkrRate         = parseFloat(form.pkr_exchange_rate || 1)
+  const freightAmount   = r2(parseFloat(form.chargeable_weight || 0) * parseFloat(form.net_rate || 0) * pkrRate)
   const formEAmountPkr  = r2(parseFloat(form.form_e_usd_value || 0) * parseFloat(form.form_e_pkr_rate || 0))
   const totalReceivable = r2(
     freightAmount
@@ -93,17 +95,23 @@ export function ShipmentFormModal({
     + formEAmountPkr
     + parseFloat(form.amendment_charges || 0)
   )
-  const cassFreightTotal = r2(parseFloat(form.chargeable_weight || 0) * parseFloat(form.cass_airline_rate || 0))
+  const cassFreightTotal = r2(parseFloat(form.chargeable_weight || 0) * parseFloat(form.cass_airline_rate || 0) * pkrRate)
 
   // ── Setters ──────────────────────────────────────────────────────────────
   const setF = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }))
 
   function handleAirlineChange(id) {
     const airline = airlines.find((a) => a.id === id)
+    const rate = parseFloat(form.pkr_exchange_rate || 1)
     const otherCharges = form.awb_self_uploaded
-      ? (airline?.other_charges_self_upload ?? 0)
-      : (airline?.other_charges_standard ?? 0)
-    setForm((p) => ({ ...p, airline_id: id, other_charges: otherCharges }))
+      ? r2(Number(airline?.other_charges_self_upload ?? 0) * rate)
+      : r2(Number(airline?.awb_airline_upload_charges ?? 0) * rate)
+    setForm((p) => ({
+      ...p,
+      airline_id: id,
+      cass_airline_rate: airline?.cass_commission_usd_per_kg ?? '',
+      other_charges: otherCharges,
+    }))
   }
 
   function handleOriginChange(raw) {
@@ -128,10 +136,22 @@ export function ShipmentFormModal({
 
   function handleSelfUploadChange(checked) {
     const airline = airlines.find((a) => a.id === form.airline_id)
+    const rate = parseFloat(form.pkr_exchange_rate || 1)
     const otherCharges = checked
-      ? (airline?.other_charges_self_upload ?? 0)
-      : (airline?.other_charges_standard ?? 0)
+      ? r2(Number(airline?.other_charges_self_upload ?? 0) * rate)
+      : r2(Number(airline?.awb_airline_upload_charges ?? 0) * rate)
     setForm((p) => ({ ...p, awb_self_uploaded: checked, other_charges: otherCharges }))
+  }
+
+  function handleExchangeRateChange(val) {
+    const rate = parseFloat(val) || 1
+    const airline = airlines.find((a) => a.id === form.airline_id)
+    const otherCharges = airline
+      ? (form.awb_self_uploaded
+          ? r2(Number(airline.other_charges_self_upload ?? 0) * rate)
+          : r2(Number(airline.awb_airline_upload_charges ?? 0) * rate))
+      : form.other_charges
+    setForm((p) => ({ ...p, pkr_exchange_rate: val, other_charges: otherCharges }))
   }
 
   function handleAgentChange(id) {
@@ -155,6 +175,7 @@ export function ShipmentFormModal({
       pieces:             parseInt(form.pieces) || 1,
       chargeable_weight:  parseFloat(form.chargeable_weight) || 0,
       net_rate:           parseFloat(form.net_rate) || 0,
+      pkr_exchange_rate:  parseFloat(form.pkr_exchange_rate) || 1,
       clearing_charges:   parseFloat(form.clearing_charges) || 0,
       isc_tax:            parseFloat(form.isc_tax) || 0,
       other_charges:      parseFloat(form.other_charges) || 0,
@@ -254,23 +275,29 @@ export function ShipmentFormModal({
         {/* ── 3. Client Rates & Charges ── */}
         <Section title="Client Rates & Charges">
           <div className="grid grid-cols-4 gap-3">
-            <Field label="Net Rate (PKR / kg)">
-              <input type="number" step="0.01" min="0" className={INP}
-                value={form.net_rate} onChange={setF('net_rate')} placeholder="235.00" />
+            <Field label="USD → PKR Exchange Rate">
+              <input type="number" step="0.01" min="1" className={INP}
+                value={form.pkr_exchange_rate}
+                onChange={(e) => handleExchangeRateChange(e.target.value)}
+                placeholder="280.00" />
             </Field>
-            <Field label="Freight Amount">
+            <Field label="Net Rate (USD / kg — per 15-day period)">
+              <input type="number" step="0.0001" min="0" className={INP}
+                value={form.net_rate} onChange={setF('net_rate')} placeholder="3.50" />
+            </Field>
+            <Field label="Freight Amount (PKR)">
               <input readOnly className={RO} value={pkr(freightAmount)} />
             </Field>
-            <Field label="CASS Airline Rate (PKR / kg)">
-              <input type="number" step="0.01" min="0" className={INP}
+            <Field label="CASS Airline Rate (USD / kg — auto-filled from airline)">
+              <input type="number" step="0.0001" min="0" className={INP}
                 value={form.cass_airline_rate} onChange={setF('cass_airline_rate')}
-                placeholder="200.00" />
-            </Field>
-            <Field label="CASS Freight Total">
-              <input readOnly className={RO} value={pkr(cassFreightTotal)} />
+                placeholder="3.00" />
             </Field>
           </div>
           <div className="grid grid-cols-4 gap-3">
+            <Field label="CASS Freight Total (PKR)">
+              <input readOnly className={RO} value={pkr(cassFreightTotal)} />
+            </Field>
             <Field label="Clearing Agent">
               <select className={INP} value={form.clearing_agent_id}
                 onChange={(e) => handleAgentChange(e.target.value)}>
@@ -290,13 +317,13 @@ export function ShipmentFormModal({
                 value={form.isc_tax} onChange={setF('isc_tax')}
                 disabled={form.origin !== 'PEW'} />
             </Field>
+          </div>
+          <div className="grid grid-cols-3 gap-3 items-end">
             <Field label="Amendment Charges (PKR)">
               <input type="number" step="0.01" min="0" className={INP}
                 value={form.amendment_charges} onChange={setF('amendment_charges')} />
             </Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3 items-end">
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex items-center gap-2 cursor-pointer pb-2">
               <input
                 type="checkbox"
                 checked={form.awb_self_uploaded}
@@ -305,10 +332,10 @@ export function ShipmentFormModal({
               />
               <span className="text-sm text-gray-700">
                 AWB Self-Uploaded
-                <span className="text-gray-400 ml-1 text-xs">(uses reduced other charges rate)</span>
+                <span className="text-gray-400 ml-1 text-xs">(agent uploads — uses lower charge)</span>
               </span>
             </label>
-            <Field label="Airline Other Charges + AWB Fee (PKR)">
+            <Field label="AWB Upload Charges (PKR — auto from airline)">
               <input type="number" step="0.01" min="0" className={INP}
                 value={form.other_charges} onChange={setF('other_charges')} />
             </Field>

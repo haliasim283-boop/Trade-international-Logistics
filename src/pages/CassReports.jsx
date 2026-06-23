@@ -74,9 +74,11 @@ function defaultPeriodKey() {
 }
 
 // Calculate CASS values for one shipment row
-function calcRow(s, commPct, whtRate) {
-  const pwc        = r2(Number(s.chargeable_weight || 0) * Number(s.cass_airline_rate || 0))
-  const commission = r2(pwc * commPct / 100)
+// Rates are USD/kg; pkr_exchange_rate converts to PKR for settlement
+function calcRow(s, commUsdPerKg, whtRate) {
+  const pkrRate    = Number(s.pkr_exchange_rate || 1)
+  const pwc        = r2(Number(s.chargeable_weight || 0) * Number(s.cass_airline_rate || 0) * pkrRate)
+  const commission = r2(Number(s.chargeable_weight || 0) * commUsdPerKg * pkrRate)
   const oc_agent   = r2(Number(s.other_charges || 0))
   const oc_airline = 0
   const incentive  = 0
@@ -187,7 +189,7 @@ export default function CassReports() {
     // 2. Shipments for this airline + period
     const { data: sData, error: sErr } = await supabase
       .from('shipments')
-      .select('id,flight_date,awb_number,origin,destination,pieces,chargeable_weight,other_charges,cass_airline_rate,clients(name)')
+      .select('id,flight_date,awb_number,origin,destination,pieces,chargeable_weight,other_charges,cass_airline_rate,pkr_exchange_rate,clients(name)')
       .eq('airline_id', selectedAirlineId)
       .gte('flight_date', period.start)
       .lte('flight_date', period.end)
@@ -219,9 +221,9 @@ export default function CassReports() {
   // ── Calculated rows ─────────────────────────────────────────────────────────
   const rows = useMemo(() => {
     if (!airline) return []
-    const commPct = Number(airline.cass_commission_pct || 5)
+    const commUsdPerKg = Number(airline.cass_commission_usd_per_kg || 0)
     const whtRate = Number(settings?.cass_wht_rate || 12)
-    return shipments.map((s) => ({ ...s, ...calcRow(s, commPct, whtRate) }))
+    return shipments.map((s) => ({ ...s, ...calcRow(s, commUsdPerKg, whtRate) }))
   }, [shipments, airline, settings])
 
   // ── Recapitulation ──────────────────────────────────────────────────────────
@@ -415,7 +417,7 @@ export default function CassReports() {
                 <p className="text-sm text-blue-200 mt-0.5">
                   Period: {fmtDate(period?.start)} – {fmtDate(period?.end)}
                   &nbsp;|&nbsp; Prefix: {airline?.iata_prefix}
-                  &nbsp;|&nbsp; Commission: {airline?.cass_commission_pct}%
+                  &nbsp;|&nbsp; Commission: USD {Number(airline?.cass_commission_usd_per_kg ?? 0).toFixed(4)}/kg
                   &nbsp;|&nbsp; WHT: {settings?.cass_wht_rate ?? 12}%
                 </p>
               </div>
@@ -522,7 +524,7 @@ export default function CassReports() {
                 <table className="w-full text-sm">
                   <tbody>
                     <RecapRow label="Total Commissionable Sales" value={recap.totalPWC} />
-                    <RecapRow label={`Commission Due Agent (${airline?.cass_commission_pct ?? 5}%)`} value={-recap.totalCommission} sub />
+                    <RecapRow label={`Commission Due Agent (USD ${Number(airline?.cass_commission_usd_per_kg ?? 0).toFixed(4)}/kg)`} value={-recap.totalCommission} sub />
                     {recap.totalOCAgent > 0 && (
                       <RecapRow label="Other Charges Due Agent" value={-recap.totalOCAgent} sub />
                     )}
@@ -596,7 +598,7 @@ export default function CassReports() {
                   <p className="font-mono font-bold text-amber-900 text-lg">
                     PKR {fmt(recap.totalCommission)}
                   </p>
-                  <p className="text-xs text-amber-400">{airline?.cass_commission_pct}% of sales</p>
+                  <p className="text-xs text-amber-400">USD {Number(airline?.cass_commission_usd_per_kg ?? 0).toFixed(4)}/kg</p>
                 </div>
               </div>
             </div>

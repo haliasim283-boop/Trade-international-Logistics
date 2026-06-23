@@ -64,7 +64,7 @@ async function fetchPL(from, to) {
     supabase.from('client_payments').select('amount').gte('payment_date', from).lte('payment_date', to),
     supabase.from('manual_income').select('amount').gte('income_date', from).lte('income_date', to),
     supabase.from('shipments')
-      .select('cass_freight_total, airlines(cass_commission_pct)')
+      .select('chargeable_weight, pkr_exchange_rate, airlines(cass_commission_usd_per_kg)')
       .gte('flight_date', from).lte('flight_date', to),
     supabase.from('expenses').select('category, amount').gte('expense_date', from).lte('expense_date', to),
   ])
@@ -73,8 +73,9 @@ async function fetchPL(from, to) {
   const clientReceipts   = r2((cpData  || []).reduce((s, r) => s + Number(r.amount), 0))
   const otherIncome      = r2((miData  || []).reduce((s, r) => s + Number(r.amount), 0))
   const commissionEarned = r2((shData  || []).reduce((s, r) => {
-    const pct = Number(r.airlines?.cass_commission_pct || 0) / 100
-    return s + Number(r.cass_freight_total || 0) * pct
+    const w    = Number(r.chargeable_weight || 0)
+    const rate = Number(r.pkr_exchange_rate || 1)
+    return s + w * Number(r.airlines?.cass_commission_usd_per_kg || 0) * rate
   }, 0))
   const totalIncome = r2(clientReceipts + commissionEarned + otherIncome)
 
