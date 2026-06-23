@@ -110,7 +110,6 @@ export function ShipmentFormModal({
     setForm((p) => ({
       ...p,
       airline_id: id,
-      cass_airline_rate: airline?.cass_commission_usd_per_kg ?? '',
       other_charges: otherCharges,
     }))
   }

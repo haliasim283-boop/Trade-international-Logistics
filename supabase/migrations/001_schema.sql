@@ -519,3 +519,5 @@ ALTER TABLE shipments
   ADD COLUMN IF NOT EXISTS sales_agent_id UUID REFERENCES sales_agents(id);
 
 CREATE INDEX IF NOT EXISTS idx_shipments_sales_agent_id ON shipments(sales_agent_id);
+
+ALTER TABLE airlines DROP COLUMN IF EXISTS cass_commission_usd_per_kg;

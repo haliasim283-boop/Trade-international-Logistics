@@ -75,17 +75,15 @@ function defaultPeriodKey() {
 
 // Calculate CASS values for one shipment row
 // Rates are USD/kg; pkr_exchange_rate converts to PKR for settlement
-function calcRow(s, commUsdPerKg, whtRate) {
-  const pkrRate    = Number(s.pkr_exchange_rate || 1)
-  const pwc        = r2(Number(s.chargeable_weight || 0) * Number(s.cass_airline_rate || 0) * pkrRate)
-  const commission = r2(Number(s.chargeable_weight || 0) * commUsdPerKg * pkrRate)
-  const oc_agent   = r2(Number(s.other_charges || 0))
-  const oc_airline = 0
-  const incentive  = 0
-  const netBeforeWHT = r2(pwc - commission - oc_agent + oc_airline + incentive)
+function calcRow(s, whtRate) {
+  const pkrRate      = Number(s.pkr_exchange_rate || 1)
+  const pwc          = r2(Number(s.chargeable_weight || 0) * Number(s.cass_airline_rate || 0) * pkrRate)
+  const oc_agent     = r2(Number(s.other_charges || 0))
+  const oc_airline   = r2(Number(s.amendment_charges || 0))
+  const netBeforeWHT = r2(pwc - oc_agent + oc_airline)
   const tax_withheld = r2(netBeforeWHT * whtRate / 100)
   const net_amount   = r2(netBeforeWHT - tax_withheld)
-  return { pwc, commission, oc_agent, oc_airline, incentive, tax_withheld, net_amount }
+  return { pwc, oc_agent, oc_airline, tax_withheld, net_amount }
 }
 
 const STATUS_CONFIG = {
@@ -189,7 +187,7 @@ export default function CassReports() {
     // 2. Shipments for this airline + period
     const { data: sData, error: sErr } = await supabase
       .from('shipments')
-      .select('id,flight_date,awb_number,origin,destination,pieces,chargeable_weight,other_charges,cass_airline_rate,pkr_exchange_rate,clients(name)')
+      .select('id,flight_date,awb_number,origin,destination,pieces,chargeable_weight,other_charges,amendment_charges,cass_airline_rate,pkr_exchange_rate,clients(name)')
       .eq('airline_id', selectedAirlineId)
       .gte('flight_date', period.start)
       .lte('flight_date', period.end)
@@ -221,31 +219,28 @@ export default function CassReports() {
   // ── Calculated rows ─────────────────────────────────────────────────────────
   const rows = useMemo(() => {
     if (!airline) return []
-    const commUsdPerKg = Number(airline.cass_commission_usd_per_kg || 0)
     const whtRate = Number(settings?.cass_wht_rate || 12)
-    return shipments.map((s) => ({ ...s, ...calcRow(s, commUsdPerKg, whtRate) }))
+    return shipments.map((s) => ({ ...s, ...calcRow(s, whtRate) }))
   }, [shipments, airline, settings])
 
   // ── Recapitulation ──────────────────────────────────────────────────────────
   const recap = useMemo(() => {
     const totalWeight   = rows.reduce((s, r) => s + Number(r.chargeable_weight || 0), 0)
     const totalPWC      = r2(rows.reduce((s, r) => s + r.pwc, 0))
-    const totalCommission = r2(rows.reduce((s, r) => s + r.commission, 0))
     const totalOCAgent  = r2(rows.reduce((s, r) => s + r.oc_agent, 0))
     const totalOCAirline = r2(rows.reduce((s, r) => s + r.oc_airline, 0))
-    const totalIncentive = r2(rows.reduce((s, r) => s + r.incentive, 0))
     const totalWHT      = r2(rows.reduce((s, r) => s + r.tax_withheld, 0))
     const totalNet      = r2(rows.reduce((s, r) => s + r.net_amount, 0))
     const awbCount      = rows.length
     const bta           = r2(Number(airline?.bta_rate_per_awb || 0) * awbCount)
     const totalAdj      = r2(adjustments.reduce((s, a) => s + Number(a.amount || 0), 0))
-    const netDueExport  = r2(totalPWC - totalCommission - totalOCAgent - totalWHT + totalAdj)
+    const netDueExport  = r2(totalPWC - totalOCAgent - totalWHT + totalAdj)
     const grandTotal    = r2(netDueExport + bta)
     const totalPaid     = r2(payments.reduce((s, p) => s + Number(p.amount || 0), 0))
     const balanceDue    = r2(grandTotal - totalPaid)
     return {
-      totalWeight, totalPWC, totalCommission, totalOCAgent, totalOCAirline,
-      totalIncentive, totalWHT, totalNet, awbCount, bta, totalAdj,
+      totalWeight, totalPWC, totalOCAgent, totalOCAirline,
+      totalWHT, totalNet, awbCount, bta, totalAdj,
       netDueExport, grandTotal, totalPaid, balanceDue,
       status: cassperiod?.status ?? 'Pending',
     }
@@ -417,7 +412,6 @@ export default function CassReports() {
                 <p className="text-sm text-blue-200 mt-0.5">
                   Period: {fmtDate(period?.start)} – {fmtDate(period?.end)}
                   &nbsp;|&nbsp; Prefix: {airline?.iata_prefix}
-                  &nbsp;|&nbsp; Commission: USD {Number(airline?.cass_commission_usd_per_kg ?? 0).toFixed(4)}/kg
                   &nbsp;|&nbsp; WHT: {settings?.cass_wht_rate ?? 12}%
                 </p>
               </div>
@@ -446,10 +440,8 @@ export default function CassReports() {
                     <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide">DST</th>
                     <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Weight (KGS)</th>
                     <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Prepaid Wgt Charges</th>
-                    <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Commission</th>
                     <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">OC Due Agent</th>
                     <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">OC Due Airline</th>
-                    <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Incentive</th>
                     <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Tax Withheld</th>
                     <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide">SPIN</th>
                     <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Net Amount</th>
@@ -473,12 +465,12 @@ export default function CassReports() {
                           {Number(r.chargeable_weight || 0).toFixed(3)}
                         </td>
                         <td className="px-3 py-2 text-right font-mono text-gray-900">{fmt(r.pwc)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-amber-700">({fmt(r.commission)})</td>
                         <td className="px-3 py-2 text-right font-mono text-gray-700">
                           {r.oc_agent > 0 ? `(${fmt(r.oc_agent)})` : '—'}
                         </td>
-                        <td className="px-3 py-2 text-right font-mono text-gray-500">—</td>
-                        <td className="px-3 py-2 text-right font-mono text-gray-500">—</td>
+                        <td className="px-3 py-2 text-right font-mono text-gray-700">
+                          {r.oc_airline > 0 ? fmt(r.oc_airline) : '—'}
+                        </td>
                         <td className="px-3 py-2 text-right font-mono text-purple-700">({fmt(r.tax_withheld)})</td>
                         <td className="px-3 py-2 text-center text-gray-500 text-xs">{i + 1}</td>
                         <td className="px-3 py-2 text-right font-mono font-semibold text-navy">{fmt(r.net_amount)}</td>
@@ -496,12 +488,12 @@ export default function CassReports() {
                         {Number(recap.totalWeight).toFixed(3)}
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">{fmt(recap.totalPWC)}</td>
-                      <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">({fmt(recap.totalCommission)})</td>
                       <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">
                         {recap.totalOCAgent > 0 ? `(${fmt(recap.totalOCAgent)})` : '—'}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">—</td>
-                      <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">—</td>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">
+                        {recap.totalOCAirline > 0 ? fmt(recap.totalOCAirline) : '—'}
+                      </td>
                       <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">({fmt(recap.totalWHT)})</td>
                       <td></td>
                       <td className="px-3 py-2.5 text-right font-mono font-bold text-sm">{fmt(recap.totalNet)}</td>
@@ -523,8 +515,7 @@ export default function CassReports() {
               <div className="px-4 pb-4">
                 <table className="w-full text-sm">
                   <tbody>
-                    <RecapRow label="Total Commissionable Sales" value={recap.totalPWC} />
-                    <RecapRow label={`Commission Due Agent (USD ${Number(airline?.cass_commission_usd_per_kg ?? 0).toFixed(4)}/kg)`} value={-recap.totalCommission} sub />
+                    <RecapRow label="Total Prepaid Weight Charges" value={recap.totalPWC} />
                     {recap.totalOCAgent > 0 && (
                       <RecapRow label="Other Charges Due Agent" value={-recap.totalOCAgent} sub />
                     )}
@@ -594,11 +585,11 @@ export default function CassReports() {
                   <p className="text-xs text-blue-400">KGS</p>
                 </div>
                 <div className="bg-amber-50 border border-amber-100 rounded-xl p-3">
-                  <p className="text-xs text-amber-600 font-medium mb-1">Commission Earned</p>
+                  <p className="text-xs text-amber-600 font-medium mb-1">Net Due Export</p>
                   <p className="font-mono font-bold text-amber-900 text-lg">
-                    PKR {fmt(recap.totalCommission)}
+                    PKR {fmt(recap.netDueExport)}
                   </p>
-                  <p className="text-xs text-amber-400">USD {Number(airline?.cass_commission_usd_per_kg ?? 0).toFixed(4)}/kg</p>
+                  <p className="text-xs text-amber-400">After OC &amp; WHT</p>
                 </div>
               </div>
             </div>

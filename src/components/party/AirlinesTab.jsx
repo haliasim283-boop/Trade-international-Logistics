@@ -23,7 +23,7 @@ function Field({ label, required, children }) {
 function num(n) { return Number(n).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 
 const EMPTY = {
-  name: '', iata_prefix: '', cass_commission_usd_per_kg: 0,
+  name: '', iata_prefix: '',
   other_charges_self_upload: 0, awb_airline_upload_charges: 0,
   bta_rate_per_awb: 0, default_cass_rate_notes: '',
 }
@@ -54,7 +54,6 @@ export function AirlinesTab() {
   function openEdit(r) {
     setForm({
       name: r.name, iata_prefix: r.iata_prefix,
-      cass_commission_usd_per_kg: r.cass_commission_usd_per_kg ?? 0,
       other_charges_self_upload: r.other_charges_self_upload ?? 0,
       awb_airline_upload_charges: r.awb_airline_upload_charges ?? 0,
       bta_rate_per_awb: r.bta_rate_per_awb,
@@ -105,7 +104,6 @@ export function AirlinesTab() {
           <Thead>
             <tr>
               <Th>Airline Name</Th><Th>Prefix</Th>
-              <Th className="text-right">Commission (USD/kg)</Th>
               <Th className="text-right">Self-Upload Chgs (USD)</Th>
               <Th className="text-right">AWB Upload Chgs (USD)</Th>
               <Th className="text-right">BTA / AWB</Th>
@@ -121,7 +119,6 @@ export function AirlinesTab() {
                     {r.iata_prefix}
                   </span>
                 </Td>
-                <Td className="font-mono text-right text-gray-700">USD {num(r.cass_commission_usd_per_kg ?? 0)}</Td>
                 <Td className="font-mono text-right text-gray-700">USD {num(r.other_charges_self_upload ?? 0)}</Td>
                 <Td className="font-mono text-right text-gray-700">USD {num(r.awb_airline_upload_charges ?? 0)}</Td>
                 <Td className="font-mono text-right text-gray-700">PKR {num(r.bta_rate_per_awb)}</Td>
@@ -160,11 +157,7 @@ export function AirlinesTab() {
                   placeholder="e.g. 176" />
               </Field>
             </div>
-            <div className="grid grid-cols-3 gap-4">
-              <Field label="CASS Commission (USD/kg)">
-                <input type="number" step="0.0001" min="0" className={INP}
-                  value={form.cass_commission_usd_per_kg} onChange={setN('cass_commission_usd_per_kg')} />
-              </Field>
+            <div className="grid grid-cols-2 gap-4">
               <Field label="Self-Upload Charges (USD)">
                 <input type="number" step="0.01" min="0" className={INP}
                   value={form.other_charges_self_upload} onChange={setN('other_charges_self_upload')} />
