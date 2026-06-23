@@ -183,7 +183,7 @@ export function ManageAirlinesModal({ onClose, onChanged }) {
               </Field>
             </div>
             <div className="grid grid-cols-3 gap-4">
-              <Field label="CASS Commission (USD/kg — per 15-day period)">
+              <Field label="CASS Commission (USD/kg)">
                 <input type="number" step="0.0001" min="0" className={INP}
                   value={form.cass_commission_usd_per_kg} onChange={setN('cass_commission_usd_per_kg')} />
               </Field>

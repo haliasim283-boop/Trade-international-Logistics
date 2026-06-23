@@ -57,7 +57,7 @@ function exportCSV(rows) {
     ['Weight (KGS)',    (r) => r.chargeable_weight],
     ['Net Rate',        (r) => r.net_rate],
     ['Clearing Chgs',   (r) => r.clearing_charges],
-    ['ISC Tax',         (r) => r.isc_tax],
+    ['IDC Tax',         (r) => r.idc_tax],
     ['Other Charges',   (r) => r.other_charges],
     ['Form E Amt',      (r) => r.form_e_amount_pkr],
     ['Amendment',       (r) => r.amendment_charges],
@@ -89,7 +89,8 @@ export default function Shipments() {
   const [clients,        setClients]        = useState([])
   const [clearingAgents, setClearingAgents] = useState([])
   const [formESuppliers, setFormESuppliers] = useState([])
-  const [iscTaxRate,     setIscTaxRate]     = useState(0)
+  const [salesAgents,    setSalesAgents]    = useState([])
+  const [idcTaxRate,     setIdcTaxRate]     = useState(0)
   const [loading,        setLoading]        = useState(true)
   const [error,          setError]          = useState(null)
   const [saving,         setSaving]         = useState(false)
@@ -125,6 +126,7 @@ export default function Shipments() {
       { data: caData },
       { data: feData },
       { data: settData },
+      { data: saData },
     ] = await Promise.all([
       supabase
         .from('shipments')
@@ -135,7 +137,8 @@ export default function Shipments() {
       supabase.from('clients').select('id, name').eq('is_active', true).order('name'),
       supabase.from('clearing_agents').select('*').eq('is_active', true).order('city'),
       supabase.from('form_e_suppliers').select('id, name').eq('is_active', true).order('name'),
-      supabase.from('company_settings').select('isc_tax_rate').eq('id', 1).single(),
+      supabase.from('company_settings').select('idc_tax_rate').eq('id', 1).single(),
+      supabase.from('sales_agents').select('id, name, commission_pkr_per_kg').eq('is_active', true).order('name'),
     ])
 
     if (sErr) { setError(sErr.message) }
@@ -145,7 +148,8 @@ export default function Shipments() {
       setClients(cData ?? [])
       setClearingAgents(caData ?? [])
       setFormESuppliers(feData ?? [])
-      setIscTaxRate(parseFloat(settData?.isc_tax_rate ?? 0))
+      setIdcTaxRate(parseFloat(settData?.idc_tax_rate ?? 0))
+      setSalesAgents(saData ?? [])
     }
     setLoading(false)
   }, [])
@@ -397,7 +401,7 @@ export default function Shipments() {
                   <Th>Client</Th>
                   <Th>Route</Th>
                   <Th className="text-right">PCS / KGS</Th>
-                  <Th className="text-right">Net Rate (USD/kg)</Th>
+                  <Th className="text-right">Net Rate (PKR/kg)</Th>
                   <Th className="text-right">Total Receivable (PKR)</Th>
                   <Th>Status</Th>
                   <Th>Actions</Th>
@@ -424,7 +428,7 @@ export default function Shipments() {
                     <Td className="text-right font-mono text-sm whitespace-nowrap">
                       {s.pieces} / {Number(s.chargeable_weight || 0).toFixed(3)}
                     </Td>
-                    <Td className="text-right font-mono">USD {fmt(s.net_rate)}</Td>
+                    <Td className="text-right font-mono">PKR {fmt(s.net_rate)}</Td>
                     <Td className="text-right font-mono font-semibold text-gray-800 whitespace-nowrap">
                       PKR {fmt(s.total_receivable)}
                     </Td>
@@ -486,7 +490,8 @@ export default function Shipments() {
           clients={clients}
           clearingAgents={clearingAgents}
           formESuppliers={formESuppliers}
-          iscTaxRate={iscTaxRate}
+          salesAgents={salesAgents}
+          idcTaxRate={idcTaxRate}
           onSave={handleSave}
           onClose={() => setFormModal(null)}
           saving={saving}

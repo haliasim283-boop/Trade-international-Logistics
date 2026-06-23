@@ -47,9 +47,10 @@ export default function Invoices() {
   const location = useLocation()
 
   // ── Data ──
-  const [invoices,    setInvoices]    = useState([])
-  const [clients,     setClients]     = useState([])
-  const [overdueDays, setOverdueDays] = useState(30)
+  const [invoices,        setInvoices]        = useState([])
+  const [clients,         setClients]         = useState([])
+  const [clearingAgents,  setClearingAgents]  = useState([])
+  const [overdueDays,     setOverdueDays]     = useState(30)
   const [loading,     setLoading]     = useState(true)
   const [error,       setError]       = useState(null)
   const [saving,      setSaving]      = useState(false)
@@ -75,6 +76,7 @@ export default function Invoices() {
     const [
       { data: invData, error: invErr },
       { data: cData },
+      { data: caData },
       { data: settData },
     ] = await Promise.all([
       supabase
@@ -83,6 +85,7 @@ export default function Invoices() {
         .order('invoice_date', { ascending: false })
         .order('created_at',   { ascending: false }),
       supabase.from('clients').select('id, name, city').eq('is_active', true).order('name'),
+      supabase.from('clearing_agents').select('id, name, city, origin_code, per_shipment_charge').eq('is_active', true).order('city'),
       supabase.from('company_settings').select('invoice_overdue_days').eq('id', 1).single(),
     ])
 
@@ -90,6 +93,7 @@ export default function Invoices() {
     else {
       setInvoices(invData  ?? [])
       setClients(cData     ?? [])
+      setClearingAgents(caData ?? [])
       setOverdueDays(settData?.invoice_overdue_days ?? 30)
     }
     setLoading(false)
@@ -383,6 +387,7 @@ export default function Invoices() {
           invoice={formModal.invoice}
           shipment={formModal.shipment}
           clients={clients}
+          clearingAgents={clearingAgents}
           onSave={handleSave}
           onClose={() => setFormModal(null)}
           saving={saving}

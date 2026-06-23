@@ -218,7 +218,7 @@ function parseTrackingRows(rows, airlines, clients) {
       chargeable_weight:  wght,
       net_rate:           0,
       clearing_charges:   0,
-      isc_tax:            0,
+      idc_tax:            0,
       other_charges:      0,
       awb_self_uploaded:  false,
       form_e_usd_value:   0,
@@ -309,7 +309,7 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
       chargeable_weight:  r.chargeable_weight,
       net_rate:           r.net_rate,
       clearing_charges:   r.clearing_charges,
-      isc_tax:            r.isc_tax,
+      idc_tax:            r.idc_tax,
       other_charges:      r.other_charges,
       awb_self_uploaded:  r.awb_self_uploaded,
       form_e_usd_value:   r.form_e_usd_value,
@@ -324,15 +324,23 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
     }))
 
     let inserted = 0
+    let skippedDupes = 0
     const errors = []
     const CHUNK  = 100
     for (let i = 0; i < payload.length; i += CHUNK) {
-      const { error } = await supabase.from('shipments').insert(payload.slice(i, i + CHUNK))
+      const chunk = payload.slice(i, i + CHUNK)
+      const { data, error } = await supabase
+        .from('shipments')
+        .upsert(chunk, { onConflict: 'awb_number', ignoreDuplicates: true })
+        .select('id')
       if (error) errors.push(error.message)
-      else inserted += Math.min(CHUNK, payload.length - i)
+      else {
+        inserted     += data?.length ?? 0
+        skippedDupes += chunk.length - (data?.length ?? 0)
+      }
     }
 
-    setResult({ inserted, skippedUnmatched: parsed.unmatched.length, errors })
+    setResult({ inserted, skippedDupes, skippedUnmatched: parsed.unmatched.length, errors })
     setImporting(false)
     setStep('done')
     if (inserted > 0) onImported()
@@ -521,6 +529,11 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
           <div>
             <p className="text-xl font-bold text-gray-800">{result.inserted} shipments imported</p>
             <p className="text-sm text-gray-500 mt-1">They are now visible in the Master Shipment Log.</p>
+            {result.skippedDupes > 0 && (
+              <p className="text-sm text-blue-600 mt-2">
+                {result.skippedDupes} already existed (same AWB number) — skipped, no duplicates created.
+              </p>
+            )}
             {result.skippedUnmatched > 0 && (
               <p className="text-sm text-amber-600 mt-2">
                 {result.skippedUnmatched} rows skipped — add the missing clients/airlines to Party Management, then re-upload.

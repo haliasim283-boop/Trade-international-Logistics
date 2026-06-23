@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS company_settings (
   bank_2_name             TEXT         DEFAULT 'Bank Al Habib',
   bank_2_account_name     TEXT         DEFAULT 'Haider Ali',
   logo_url                TEXT,
-  isc_tax_rate            NUMERIC(5,2)  NOT NULL DEFAULT 0.00,
+  idc_tax_rate            NUMERIC(5,2)  NOT NULL DEFAULT 0.00,
   invoice_overdue_days    INTEGER       NOT NULL DEFAULT 30,
   cass_wht_rate           NUMERIC(5,2)  NOT NULL DEFAULT 12.00,
   default_form_e_rate_min NUMERIC(10,2)          DEFAULT 13.00,
@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS shipments (
   chargeable_weight  NUMERIC(10,3)  NOT NULL DEFAULT 0.000,
   net_rate           NUMERIC(10,2)  NOT NULL DEFAULT 0.00,
   clearing_charges   NUMERIC(14,2)  NOT NULL DEFAULT 0.00,
-  isc_tax            NUMERIC(14,2)  NOT NULL DEFAULT 0.00,
+  idc_tax            NUMERIC(14,2)  NOT NULL DEFAULT 0.00,
   other_charges      NUMERIC(14,2)  NOT NULL DEFAULT 0.00,
   awb_self_uploaded  BOOLEAN        NOT NULL DEFAULT FALSE,
   form_e_usd_value   NUMERIC(14,2)           DEFAULT 0.00,
@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS shipments (
   total_receivable   NUMERIC(14,2) GENERATED ALWAYS AS (
                        ROUND(chargeable_weight * net_rate, 2)
                        + clearing_charges
-                       + isc_tax
+                       + idc_tax
                        + other_charges
                        + ROUND(COALESCE(form_e_usd_value, 0) * COALESCE(form_e_pkr_rate, 0), 2)
                        + amendment_charges
@@ -349,7 +349,7 @@ CREATE INDEX IF NOT EXISTS idx_shipments_flight_date  ON shipments(flight_date);
 CREATE INDEX IF NOT EXISTS idx_shipments_client_id    ON shipments(client_id);
 CREATE INDEX IF NOT EXISTS idx_shipments_airline_id   ON shipments(airline_id);
 CREATE INDEX IF NOT EXISTS idx_shipments_status       ON shipments(status);
-CREATE INDEX IF NOT EXISTS idx_shipments_awb_number   ON shipments(awb_number);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_shipments_awb_number ON shipments(awb_number);
 CREATE INDEX IF NOT EXISTS idx_shipments_origin       ON shipments(origin);
 CREATE INDEX IF NOT EXISTS idx_invoices_client_id     ON invoices(client_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_invoice_date  ON invoices(invoice_date);
@@ -407,6 +407,7 @@ ALTER TABLE form_e_payments         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clearing_agent_payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE expenses                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE manual_income           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sales_agents            ENABLE ROW LEVEL SECURITY;
 
 -- profiles: users can read/update their own; admins see all
 DROP POLICY IF EXISTS "own profile select" ON profiles;
@@ -431,7 +432,7 @@ DECLARE
     'company_settings','clients','airlines','form_e_suppliers','clearing_agents',
     'shipments','invoices','client_opening_balances','client_payments',
     'cass_periods','cass_payments','cass_adjustments','form_e_payments',
-    'clearing_agent_payments','expenses','manual_income'
+    'clearing_agent_payments','expenses','manual_income','sales_agents'
   ];
 BEGIN
   FOREACH tbl IN ARRAY tables LOOP
@@ -483,7 +484,7 @@ ALTER TABLE shipments
 -- (Existing rows keep pkr_exchange_rate = 1 → calculations unchanged)
 ALTER TABLE shipments DROP COLUMN IF EXISTS freight_amount;
 ALTER TABLE shipments ADD COLUMN freight_amount NUMERIC(14,2) GENERATED ALWAYS AS (
-  ROUND(chargeable_weight * net_rate * pkr_exchange_rate, 2)
+  ROUND(chargeable_weight * net_rate, 2)
 ) STORED;
 
 ALTER TABLE shipments DROP COLUMN IF EXISTS cass_freight_total;
@@ -493,10 +494,28 @@ ALTER TABLE shipments ADD COLUMN cass_freight_total NUMERIC(14,2) GENERATED ALWA
 
 ALTER TABLE shipments DROP COLUMN IF EXISTS total_receivable;
 ALTER TABLE shipments ADD COLUMN total_receivable NUMERIC(14,2) GENERATED ALWAYS AS (
-  ROUND(chargeable_weight * net_rate * pkr_exchange_rate, 2)
+  ROUND(chargeable_weight * net_rate, 2)
   + clearing_charges
-  + isc_tax
+  + idc_tax
   + other_charges
   + ROUND(COALESCE(form_e_usd_value, 0) * COALESCE(form_e_pkr_rate, 0), 2)
   + amendment_charges
 ) STORED;
+
+-- ── Sales Agents ─────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS sales_agents (
+  id                    UUID          DEFAULT gen_random_uuid() PRIMARY KEY,
+  name                  TEXT          NOT NULL,
+  commission_pkr_per_kg NUMERIC(10,2) NOT NULL DEFAULT 0,
+  contact               TEXT,
+  notes                 TEXT,
+  is_active             BOOLEAN       NOT NULL DEFAULT true,
+  created_at            TIMESTAMPTZ   DEFAULT now(),
+  updated_at            TIMESTAMPTZ   DEFAULT now()
+);
+
+ALTER TABLE shipments
+  ADD COLUMN IF NOT EXISTS sales_agent_id UUID REFERENCES sales_agents(id);
+
+CREATE INDEX IF NOT EXISTS idx_shipments_sales_agent_id ON shipments(sales_agent_id);

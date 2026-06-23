@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Users, Plane, FileCheck, Truck } from 'lucide-react'
+import { Users, Plane, FileCheck, Truck, UserCheck } from 'lucide-react'
 import { Card } from '../components/ui/Card'
 import { ClientsTab }        from '../components/party/ClientsTab'
 import { AirlinesTab }       from '../components/party/AirlinesTab'
 import { FormESuppliersTab } from '../components/party/FormESuppliersTab'
 import { ClearingAgentsTab } from '../components/party/ClearingAgentsTab'
+import { SalesAgentsTab }    from '../components/party/SalesAgentsTab'
 
 
 // ── Tab definitions ──────────────────────────────────────────────────────────
@@ -14,6 +15,7 @@ const TABS = [
   { id: 'airlines', label: 'Airlines',          Icon: Plane,      Component: AirlinesTab },
   { id: 'form-e',   label: 'Form E Suppliers',  Icon: FileCheck,  Component: FormESuppliersTab },
   { id: 'agents',   label: 'Clearing Agents',   Icon: Truck,      Component: ClearingAgentsTab },
+  { id: 'sales',    label: 'Sales Agents',       Icon: UserCheck,  Component: SalesAgentsTab },
 ]
 
 // ── Page ─────────────────────────────────────────────────────────────────────

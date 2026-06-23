@@ -548,7 +548,7 @@ export default function Settings() {
       bank_2_iban:             settings.bank_2_iban,
       bank_2_name:             settings.bank_2_name,
       bank_2_account_name:     settings.bank_2_account_name,
-      isc_tax_rate:            settings.isc_tax_rate,
+      idc_tax_rate:            settings.idc_tax_rate,
       invoice_overdue_days:    settings.invoice_overdue_days,
       cass_wht_rate:           settings.cass_wht_rate,
       default_form_e_rate_min: settings.default_form_e_rate_min,
@@ -751,9 +751,9 @@ export default function Settings() {
               <CardBody>
                 <SectionTitle>Clearing &amp; Tax</SectionTitle>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                  <Field label="ISC Tax Rate % (PEW in-house clearing)">
-                    <NumberInput step="0.01" value={settings.isc_tax_rate}
-                      onChange={(e) => setField('isc_tax_rate', e.target.value)} />
+                  <Field label="IDC Tax Rate % (PEW in-house clearing)">
+                    <NumberInput step="0.01" value={settings.idc_tax_rate}
+                      onChange={(e) => setField('idc_tax_rate', e.target.value)} />
                   </Field>
                   <Field label="CASS WHT Rate % (Withholding Tax)">
                     <NumberInput step="0.01" value={settings.cass_wht_rate}
@@ -780,7 +780,7 @@ export default function Settings() {
                 <div className="p-4 bg-blue-50 rounded-lg text-xs text-blue-700 mb-6">
                   <p className="font-semibold mb-1">Note on rates:</p>
                   <ul className="list-disc list-inside space-y-0.5">
-                    <li>ISC Tax Rate applies only to in-house (PEW) clearing charges on invoices</li>
+                    <li>IDC Tax Rate applies only to in-house (PEW) clearing charges on invoices</li>
                     <li>CASS WHT (12%) is the withholding tax on airline payments — reduce net amount due to airline</li>
                     <li>Invoice overdue days is used to highlight unpaid invoices and client balances</li>
                     <li>BTA rates are configured per-airline in Party Management → Airlines</li>

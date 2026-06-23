@@ -161,15 +161,15 @@ export function AirlinesTab() {
               </Field>
             </div>
             <div className="grid grid-cols-3 gap-4">
-              <Field label="CASS Commission (USD/kg — per 15-day period)">
+              <Field label="CASS Commission (USD/kg)">
                 <input type="number" step="0.0001" min="0" className={INP}
                   value={form.cass_commission_usd_per_kg} onChange={setN('cass_commission_usd_per_kg')} />
               </Field>
-              <Field label="Self-Upload Charges (USD — agent uploads AWB)">
+              <Field label="Self-Upload Charges (USD)">
                 <input type="number" step="0.01" min="0" className={INP}
                   value={form.other_charges_self_upload} onChange={setN('other_charges_self_upload')} />
               </Field>
-              <Field label="AWB Airline Upload Charges (USD — airline uploads)">
+              <Field label="Airline Upload Charges (USD)">
                 <input type="number" step="0.01" min="0" className={INP}
                   value={form.awb_airline_upload_charges} onChange={setN('awb_airline_upload_charges')} />
               </Field>

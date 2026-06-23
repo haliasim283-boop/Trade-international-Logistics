@@ -24,6 +24,8 @@ const BLANK = {
   pieces:                   '',
   chargeable_weight:        '',
   net_rate:                 '',
+  pkr_exchange_rate:        280,
+  clearing_agent_id:        '',
   clearing_charges:         '',
   form_e_usd_value:         '',
   form_e_pkr_rate:          '',
@@ -35,7 +37,7 @@ const BLANK = {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function InvoiceFormModal({ mode, invoice, shipment, clients, onSave, onClose, saving }) {
+export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAgents = [], onSave, onClose, saving }) {
   const [form,    setForm]    = useState(BLANK)
   const [showAdj, setShowAdj] = useState(false)
 
@@ -54,10 +56,12 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, onSave, onC
         pieces:                   invoice.pieces                   ?? '',
         chargeable_weight:        invoice.chargeable_weight        ?? '',
         net_rate:                 invoice.net_rate                 ?? '',
+        pkr_exchange_rate:        invoice.pkr_exchange_rate        ?? 280,
+        clearing_agent_id:        invoice.clearing_agent_id        ?? '',
         clearing_charges:         invoice.clearing_charges         ?? '',
         form_e_usd_value:         invoice.form_e_usd_value         ?? '',
         form_e_pkr_rate:          invoice.form_e_pkr_rate          ?? '',
-        other_charges:            invoice.other_charges            ?? '',
+        other_charges:            round2(Number(invoice.other_charges || 0) / Number(invoice.pkr_exchange_rate || 280)),
         adjustment_ref_invoice_no: invoice.adjustment_ref_invoice_no ?? '',
         adjustment_amount:        invoice.adjustment_amount        ?? '',
         notes:                    invoice.notes                    ?? '',
@@ -66,7 +70,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, onSave, onC
         setShowAdj(true)
       }
     } else if (shipment) {
-      // Pre-fill from shipment; clearing_charges absorbs isc_tax
+      // Pre-fill from shipment; clearing_charges absorbs idc_tax
       setForm({
         client_id:                shipment.client_id   ?? '',
         shipment_id:              shipment.id          ?? null,
@@ -78,10 +82,12 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, onSave, onC
         pieces:                   shipment.pieces      ?? '',
         chargeable_weight:        shipment.chargeable_weight ?? '',
         net_rate:                 shipment.net_rate    ?? '',
-        clearing_charges:         String(round2(Number(shipment.clearing_charges || 0) + Number(shipment.isc_tax || 0))),
+        pkr_exchange_rate:        shipment.pkr_exchange_rate ?? 280,
+        clearing_agent_id:        shipment.clearing_agent_id ?? '',
+        clearing_charges:         String(round2(Number(shipment.clearing_charges || 0) + Number(shipment.idc_tax || 0))),
         form_e_usd_value:         shipment.form_e_usd_value  ?? '',
         form_e_pkr_rate:          shipment.form_e_pkr_rate   ?? '',
-        other_charges:            shipment.other_charges     ?? '',
+        other_charges:            round2(Number(shipment.other_charges || 0) / Number(shipment.pkr_exchange_rate || 280)),
         adjustment_ref_invoice_no: '',
         adjustment_amount:        '',
         notes:                    '',
@@ -95,16 +101,27 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, onSave, onC
     return (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
   }
 
+  function handleAgentChange(id) {
+    const agent = clearingAgents.find((a) => a.id === id)
+    setForm((f) => ({
+      ...f,
+      clearing_agent_id: id,
+      clearing_charges:  agent ? String(agent.per_shipment_charge) : f.clearing_charges,
+    }))
+  }
+
   // ── Live totals ───────────────────────────────────────────────────────────
 
+  const pkrRate       = Number(form.pkr_exchange_rate || 280)
   const freightAmount = round2(Number(form.chargeable_weight || 0) * Number(form.net_rate || 0))
   const formEAmount   = round2(Number(form.form_e_usd_value || 0) * Number(form.form_e_pkr_rate || 0))
+  const otherChgPkr   = round2(Number(form.other_charges || 0) * pkrRate)
   const adjAmount     = showAdj ? round2(Number(form.adjustment_amount || 0)) : 0
   const totalAmount   = round2(
     freightAmount
     + round2(Number(form.clearing_charges || 0))
     + formEAmount
-    + round2(Number(form.other_charges   || 0))
+    + otherChgPkr
     + adjAmount
   )
 
@@ -123,12 +140,14 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, onSave, onC
       pieces:                   form.pieces ? Number(form.pieces) : null,
       chargeable_weight:        form.chargeable_weight ? Number(form.chargeable_weight) : null,
       net_rate:                 form.net_rate ? Number(form.net_rate) : null,
+      pkr_exchange_rate:        pkrRate,
       freight_amount:           freightAmount,
+      clearing_agent_id:        form.clearing_agent_id || null,
       clearing_charges:         round2(Number(form.clearing_charges || 0)),
       form_e_usd_value:         form.form_e_usd_value ? Number(form.form_e_usd_value) : null,
       form_e_pkr_rate:          form.form_e_pkr_rate  ? Number(form.form_e_pkr_rate)  : null,
       form_e_amount:            formEAmount,
-      other_charges:            round2(Number(form.other_charges || 0)),
+      other_charges:            otherChgPkr,
       adjustment_ref_invoice_no: showAdj ? (form.adjustment_ref_invoice_no.trim() || null) : null,
       adjustment_amount:        showAdj ? adjAmount : null,
       total_amount:             totalAmount,
@@ -193,29 +212,31 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, onSave, onC
           </div>
           <div>
             <label className={LBL}>Origin (IATA) *</label>
-            <input
-              className={INP + ' uppercase tracking-widest'}
-              value={form.origin}
-              onChange={set('origin')}
-              required
-              maxLength={3}
-              placeholder="PEW"
-            />
+            <select className={INP} value={form.origin} onChange={set('origin')} required>
+              <option value="">Select origin…</option>
+              {['PEW','ISB','MUX','SKT','LHE','KHI'].map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
           </div>
           <div>
             <label className={LBL}>Destination (IATA) *</label>
-            <input
-              className={INP + ' uppercase tracking-widest'}
-              value={form.destination}
-              onChange={set('destination')}
-              required
-              maxLength={3}
-              placeholder="DXB"
-            />
+            <select className={INP} value={form.destination} onChange={set('destination')} required>
+              <option value="">Select destination…</option>
+              {['DXB','DOH','AUH','SHJ','BAH','JED','MCT','AAN','KWI','RUH','RKT','MAN','YYZ','LHR'].map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
           </div>
         </div>
 
         {/* ── Row 3: Pieces · Weight · Net Rate → Freight ───────────── */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={LBL}>USD → PKR Exchange Rate</label>
+            <input type="number" step="0.01" min="1" className={INP} value={form.pkr_exchange_rate} onChange={set('pkr_exchange_rate')} placeholder="280.00" />
+          </div>
+        </div>
         <div className="grid grid-cols-4 gap-4">
           <div>
             <label className={LBL}>Pieces</label>
@@ -226,11 +247,11 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, onSave, onC
             <input type="number" step="0.001" className={INP} value={form.chargeable_weight} onChange={set('chargeable_weight')} placeholder="0.000" />
           </div>
           <div>
-            <label className={LBL}>Net Rate (PKR/kg)</label>
-            <input type="number" step="0.01" className={INP} value={form.net_rate} onChange={set('net_rate')} placeholder="0.00" />
+            <label className={LBL}>Net Rate (USD/kg)</label>
+            <input type="number" step="0.0001" className={INP} value={form.net_rate} onChange={set('net_rate')} placeholder="0.00" />
           </div>
           <div>
-            <label className={LBL}>Freight Amount</label>
+            <label className={LBL}>Freight Amount (PKR)</label>
             <div className={CALC}>PKR {fmt2(freightAmount)}</div>
           </div>
         </div>
@@ -238,10 +259,32 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, onSave, onC
         {/* ── Row 4: Customs Clearance ───────────────────────────────── */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={LBL}>Customs Clearance Charges (PKR)</label>
-            <input type="number" step="0.01" className={INP} value={form.clearing_charges} onChange={set('clearing_charges')} placeholder="0.00" />
+            <label className={LBL}>Customs Clearance Agent</label>
+            <select
+              className={INP}
+              value={form.clearing_agent_id}
+              onChange={(e) => handleAgentChange(e.target.value)}
+            >
+              <option value="">— Select agent —</option>
+              {clearingAgents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}{a.city ? ` — ${a.city}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={LBL}>Clearance Charges (PKR)</label>
+            <input
+              type="number"
+              step="0.01"
+              className={INP}
+              value={form.clearing_charges}
+              onChange={set('clearing_charges')}
+              placeholder="0.00"
+            />
             {shipment && (
-              <p className="mt-1 text-xs text-gray-400">Pre-filled with clearing charges + ISC tax from shipment</p>
+              <p className="mt-1 text-xs text-gray-400">Pre-filled from shipment clearing charges</p>
             )}
           </div>
         </div>
@@ -268,7 +311,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, onSave, onC
         {/* ── Row 6: Airline Other Charges ──────────────────────────── */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={LBL}>Airline Other Charges + AWB Fee (PKR)</label>
+            <label className={LBL}>Airline Other Charges + AWB Fee (USD)</label>
             <input type="number" step="0.01" className={INP} value={form.other_charges} onChange={set('other_charges')} placeholder="0.00" />
           </div>
         </div>
@@ -344,10 +387,10 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, onSave, onC
                 <span className="font-mono">PKR {fmt2(formEAmount)}</span>
               </div>
             )}
-            {round2(Number(form.other_charges || 0)) > 0 && (
+            {otherChgPkr > 0 && (
               <div className="flex justify-between text-gray-600">
                 <span>Other Charges</span>
-                <span className="font-mono">PKR {fmt2(form.other_charges)}</span>
+                <span className="font-mono">PKR {fmt2(otherChgPkr)}</span>
               </div>
             )}
             {showAdj && adjAmount !== 0 && (
