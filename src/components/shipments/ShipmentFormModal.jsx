@@ -44,7 +44,8 @@ const EMPTY = {
   awb_self_uploaded: false,
   form_e_usd_value: 0, form_e_pkr_rate: 0, form_e_supplier_id: '',
   amendment_charges: 0, cass_airline_rate: '',
-  clearing_agent_id: '', sales_agent_id: '', status: 'PNDNG', notes: '',
+  clearing_agent_id: '', sales_agent_id: '', sales_agent_commission_per_kg: 0,
+  status: 'PNDNG', notes: '',
 }
 
 export function ShipmentFormModal({
@@ -75,8 +76,9 @@ export function ShipmentFormModal({
         form_e_supplier_id: shipment.form_e_supplier_id ?? '',
         amendment_charges:  shipment.amendment_charges ?? 0,
         cass_airline_rate:  shipment.cass_airline_rate ?? '',
-        clearing_agent_id:  shipment.clearing_agent_id ?? '',
-        sales_agent_id:     shipment.sales_agent_id ?? '',
+        clearing_agent_id:              shipment.clearing_agent_id ?? '',
+        sales_agent_id:                 shipment.sales_agent_id ?? '',
+        sales_agent_commission_per_kg:  shipment.sales_agent_commission_per_kg ?? 0,
         status:             shipment.status ?? 'Planned',
         notes:              shipment.notes ?? '',
       }
@@ -85,18 +87,21 @@ export function ShipmentFormModal({
   })
 
   // ── Computed (never stored; the DB computes GENERATED columns) ──────────
-  const pkrRate         = parseFloat(form.pkr_exchange_rate || 1)
-  const freightAmount   = r2(parseFloat(form.chargeable_weight || 0) * parseFloat(form.net_rate || 0))
-  const formEAmountPkr  = r2(parseFloat(form.form_e_usd_value || 0) * parseFloat(form.form_e_pkr_rate || 0))
-  const totalReceivable = r2(
+  const pkrRate               = parseFloat(form.pkr_exchange_rate || 1)
+  const cw                    = parseFloat(form.chargeable_weight || 0)
+  const freightAmount         = r2(cw * parseFloat(form.net_rate || 0))
+  const formEAmountPkr        = r2(parseFloat(form.form_e_usd_value || 0) * parseFloat(form.form_e_pkr_rate || 0))
+  const salesAgentCommission  = r2(cw * parseFloat(form.sales_agent_commission_per_kg || 0))
+  const totalReceivable       = r2(
     freightAmount
     + parseFloat(form.clearing_charges || 0)
     + parseFloat(form.idc_tax || 0)
     + parseFloat(form.other_charges || 0)
     + formEAmountPkr
     + parseFloat(form.amendment_charges || 0)
+    + salesAgentCommission
   )
-  const cassFreightTotal = r2(parseFloat(form.chargeable_weight || 0) * parseFloat(form.cass_airline_rate || 0) * pkrRate)
+  const cassFreightTotal = r2(cw * parseFloat(form.cass_airline_rate || 0) * pkrRate)
 
   // ── Setters ──────────────────────────────────────────────────────────────
   const setF = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }))
@@ -185,8 +190,9 @@ export function ShipmentFormModal({
       form_e_supplier_id: form.form_e_supplier_id || null,
       amendment_charges:  parseFloat(form.amendment_charges) || 0,
       cass_airline_rate:  parseFloat(form.cass_airline_rate) || 0,
-      clearing_agent_id:  form.clearing_agent_id || null,
-      sales_agent_id:     form.sales_agent_id    || null,
+      clearing_agent_id:             form.clearing_agent_id || null,
+      sales_agent_id:                form.sales_agent_id    || null,
+      sales_agent_commission_per_kg: parseFloat(form.sales_agent_commission_per_kg) || 0,
       status:             form.status,
       notes:              form.notes.trim() || null,
       updated_at:         new Date().toISOString(),
@@ -217,21 +223,21 @@ export function ShipmentFormModal({
         <Section title="Shipment Details">
           <div className="grid grid-cols-3 gap-3">
             <Field label="Flight Date" required>
-              <input type="date" className={INP} value={form.flight_date} onChange={setF('flight_date')} />
+              <input type="date" name="flight_date" className={INP} value={form.flight_date} onChange={setF('flight_date')} />
             </Field>
             <Field label="AWB Number" required>
-              <input className={INP} value={form.awb_number} onChange={setF('awb_number')}
+              <input name="awb_number" className={INP} value={form.awb_number} onChange={setF('awb_number')}
                 placeholder="176-1421-4841" />
             </Field>
             <Field label="Status">
-              <select className={INP} value={form.status} onChange={setF('status')}>
+              <select name="status" className={INP} value={form.status} onChange={setF('status')}>
                 {STATUSES.map((s) => <option key={s}>{s}</option>)}
               </select>
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Airline" required>
-              <select className={INP} value={form.airline_id}
+              <select name="airline_id" className={INP} value={form.airline_id}
                 onChange={(e) => handleAirlineChange(e.target.value)}>
                 <option value="">Select airline…</option>
                 {airlines.map((a) => (
@@ -240,7 +246,7 @@ export function ShipmentFormModal({
               </select>
             </Field>
             <Field label="Client" required>
-              <select className={INP} value={form.client_id} onChange={setF('client_id')}>
+              <select name="client_id" className={INP} value={form.client_id} onChange={setF('client_id')}>
                 <option value="">Select client…</option>
                 {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -252,7 +258,7 @@ export function ShipmentFormModal({
         <Section title="Route & Weight">
           <div className="grid grid-cols-4 gap-3">
             <Field label="Origin (IATA)" required>
-              <select className={INP} value={form.origin}
+              <select name="origin" className={INP} value={form.origin}
                 onChange={(e) => handleOriginChange(e.target.value)} required>
                 <option value="">Select origin…</option>
                 {['PEW','ISB','MUX','SKT','LHE','KHI'].map((c) => (
@@ -261,7 +267,7 @@ export function ShipmentFormModal({
               </select>
             </Field>
             <Field label="Destination (IATA)" required>
-              <select className={INP} value={form.destination}
+              <select name="destination" className={INP} value={form.destination}
                 onChange={(e) => setForm((p) => ({ ...p, destination: e.target.value }))} required>
                 <option value="">Select destination…</option>
                 {['DXB','DOH','AUH','SHJ','BAH','JED','MCT','AAN','KWI','RUH','RKT','MAN','YYZ','LHR'].map((c) => (
@@ -270,11 +276,11 @@ export function ShipmentFormModal({
               </select>
             </Field>
             <Field label="Pieces (PCS)">
-              <input type="number" min="1" className={INP}
+              <input type="number" name="pieces" min="1" className={INP}
                 value={form.pieces} onChange={setF('pieces')} />
             </Field>
             <Field label="Chargeable Weight (KGS)">
-              <input type="number" step="0.001" min="0" className={INP}
+              <input type="number" name="chargeable_weight" step="0.001" min="0" className={INP}
                 value={form.chargeable_weight} onChange={setF('chargeable_weight')}
                 placeholder="0.000" />
             </Field>
@@ -285,20 +291,20 @@ export function ShipmentFormModal({
         <Section title="Client Rates & Charges">
           <div className="grid grid-cols-4 gap-3">
             <Field label="USD → PKR Exchange Rate">
-              <input type="number" step="0.01" min="1" className={INP}
+              <input type="number" name="pkr_exchange_rate" step="0.01" min="1" className={INP}
                 value={form.pkr_exchange_rate}
                 onChange={(e) => handleExchangeRateChange(e.target.value)}
                 placeholder="280.00" />
             </Field>
             <Field label="Net Rate (PKR / kg)">
-              <input type="number" step="0.0001" min="0" className={INP}
+              <input type="number" name="net_rate" step="0.0001" min="0" className={INP}
                 value={form.net_rate} onChange={setF('net_rate')} placeholder="3.50" />
             </Field>
             <Field label="Freight Amount (PKR)">
               <input readOnly className={RO} value={pkr(freightAmount)} />
             </Field>
             <Field label="CASS Airline Rate (USD / kg)">
-              <input type="number" step="0.0001" min="0" className={INP}
+              <input type="number" name="cass_airline_rate" step="0.0001" min="0" className={INP}
                 value={form.cass_airline_rate} onChange={setF('cass_airline_rate')}
                 placeholder="3.00" />
             </Field>
@@ -308,7 +314,7 @@ export function ShipmentFormModal({
               <input readOnly className={RO} value={pkr(cassFreightTotal)} />
             </Field>
             <Field label="Clearing Agent">
-              <select className={INP} value={form.clearing_agent_id}
+              <select name="clearing_agent_id" className={INP} value={form.clearing_agent_id}
                 onChange={(e) => handleAgentChange(e.target.value)}>
                 <option value="">None / manual</option>
                 {clearingAgents.map((a) => (
@@ -317,24 +323,25 @@ export function ShipmentFormModal({
               </select>
             </Field>
             <Field label="Clearing Charges (PKR)">
-              <input type="number" step="0.01" min="0" className={INP}
+              <input type="number" name="clearing_charges" step="0.01" min="0" className={INP}
                 value={form.clearing_charges}
                 onChange={(e) => handleClearingChargesChange(e.target.value)} />
             </Field>
             <Field label={idcLabel}>
-              <input type="number" step="0.01" min="0" className={INP}
+              <input type="number" name="idc_tax" step="0.01" min="0" className={INP}
                 value={form.idc_tax} onChange={setF('idc_tax')}
                 disabled={form.origin !== 'PEW'} />
             </Field>
           </div>
           <div className="grid grid-cols-4 gap-3 items-end">
             <Field label="Amendment Charges (PKR)">
-              <input type="number" step="0.01" min="0" className={INP}
+              <input type="number" name="amendment_charges" step="0.01" min="0" className={INP}
                 value={form.amendment_charges} onChange={setF('amendment_charges')} />
             </Field>
             <label className="flex items-center gap-2 cursor-pointer pb-2">
               <input
                 type="checkbox"
+                name="awb_self_uploaded"
                 checked={form.awb_self_uploaded}
                 onChange={(e) => handleSelfUploadChange(e.target.checked)}
                 className="w-4 h-4 accent-navy"
@@ -345,11 +352,11 @@ export function ShipmentFormModal({
               </span>
             </label>
             <Field label="AWB Upload Charges (PKR)">
-              <input type="number" step="0.01" min="0" className={INP}
+              <input type="number" name="other_charges" step="0.01" min="0" className={INP}
                 value={form.other_charges} onChange={setF('other_charges')} />
             </Field>
             <Field label="Sales Agent">
-              <select className={INP} value={form.sales_agent_id} onChange={setF('sales_agent_id')}>
+              <select name="sales_agent_id" className={INP} value={form.sales_agent_id} onChange={setF('sales_agent_id')}>
                 <option value="">No SA (Sales Agent)</option>
                 {salesAgents.map((a) => (
                   <option key={a.id} value={a.id}>{a.name}</option>
@@ -357,23 +364,35 @@ export function ShipmentFormModal({
               </select>
             </Field>
           </div>
+          {form.sales_agent_id && (
+            <div className="grid grid-cols-4 gap-3 items-end">
+              <Field label="SA Commission (PKR / kg)">
+                <input type="number" name="sales_agent_commission_per_kg" step="0.01" min="0" className={INP}
+                  value={form.sales_agent_commission_per_kg} onChange={setF('sales_agent_commission_per_kg')}
+                  placeholder="0.00" />
+              </Field>
+              <Field label="SA Commission Amount (PKR)">
+                <input readOnly className={RO} value={pkr(salesAgentCommission)} />
+              </Field>
+            </div>
+          )}
         </Section>
 
         {/* ── 4. Form E ── */}
         <Section title="Form E">
           <div className="grid grid-cols-4 gap-3">
             <Field label="Form E Supplier">
-              <select className={INP} value={form.form_e_supplier_id} onChange={setF('form_e_supplier_id')}>
+              <select name="form_e_supplier_id" className={INP} value={form.form_e_supplier_id} onChange={setF('form_e_supplier_id')}>
                 <option value="">None</option>
                 {formESuppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </Field>
             <Field label="USD Value">
-              <input type="number" step="0.01" min="0" className={INP}
+              <input type="number" name="form_e_usd_value" step="0.01" min="0" className={INP}
                 value={form.form_e_usd_value} onChange={setF('form_e_usd_value')} placeholder="0" />
             </Field>
             <Field label="PKR Rate per USD">
-              <input type="number" step="0.01" min="0" className={INP}
+              <input type="number" name="form_e_pkr_rate" step="0.01" min="0" className={INP}
                 value={form.form_e_pkr_rate} onChange={setF('form_e_pkr_rate')} placeholder="13.00" />
             </Field>
             <Field label="Form E Amount (PKR)">
@@ -394,7 +413,7 @@ export function ShipmentFormModal({
 
         {/* ── Notes ── */}
         <Field label="Notes">
-          <textarea className={INP} rows={2} value={form.notes} onChange={setF('notes')}
+          <textarea name="notes" className={INP} rows={2} value={form.notes} onChange={setF('notes')}
             placeholder="Any additional remarks…" />
         </Field>
 

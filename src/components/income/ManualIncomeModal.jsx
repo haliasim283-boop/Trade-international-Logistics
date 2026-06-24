@@ -74,16 +74,16 @@ export function ManualIncomeModal({ existing, onClose, onSaved }) {
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <Field label="Date" required>
-            <input type="date" className={INP} value={form.income_date} onChange={setF('income_date')} />
+            <input type="date" name="income_date" className={INP} value={form.income_date} onChange={setF('income_date')} />
           </Field>
           <Field label="Amount (PKR)" required>
-            <input type="number" step="0.01" min="0" className={INP}
+            <input type="number" name="amount" step="0.01" min="0" className={INP}
               value={form.amount} onChange={setF('amount')} placeholder="0.00" />
           </Field>
         </div>
 
         <Field label="Source" required>
-          <input list="income-sources" className={INP} value={form.source} onChange={setF('source')}
+          <input list="income-sources" name="source" className={INP} value={form.source} onChange={setF('source')}
             placeholder="e.g. Commission Earned (CASS)" />
           <datalist id="income-sources">
             {SOURCES.map((s) => <option key={s} value={s} />)}
@@ -92,18 +92,18 @@ export function ManualIncomeModal({ existing, onClose, onSaved }) {
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Bank / Account">
-            <select className={INP + ' appearance-none'} value={form.bank_account} onChange={setF('bank_account')}>
+            <select name="bank_account" className={INP + ' appearance-none'} value={form.bank_account} onChange={setF('bank_account')}>
               {BANKS.map((b) => <option key={b} value={b}>{b}</option>)}
             </select>
           </Field>
           <Field label="Transaction ID / Ref">
-            <input className={INP} value={form.transaction_id} onChange={setF('transaction_id')}
+            <input name="transaction_id" className={INP} value={form.transaction_id} onChange={setF('transaction_id')}
               placeholder="TRX-XXXX" />
           </Field>
         </div>
 
         <Field label="Description">
-          <textarea className={INP} rows={2} value={form.description} onChange={setF('description')}
+          <textarea name="description" className={INP} rows={2} value={form.description} onChange={setF('description')}
             placeholder="Optional notes…" />
         </Field>
 

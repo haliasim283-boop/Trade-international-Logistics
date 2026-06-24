@@ -520,4 +520,49 @@ ALTER TABLE shipments
 
 CREATE INDEX IF NOT EXISTS idx_shipments_sales_agent_id ON shipments(sales_agent_id);
 
-ALTER TABLE airlines DROP COLUMN IF EXISTS cass_commission_usd_per_kg;
+-- ── Amendment Charges on Invoices ─────────────────────────────────────────────
+
+ALTER TABLE invoices
+  ADD COLUMN IF NOT EXISTS amendment_charges NUMERIC(14,2) NOT NULL DEFAULT 0.00;
+
+-- ── Per-Shipment Sales Agent Commission ──────────────────────────────────────
+-- Commission varies per shipment so it's stored on the shipment, not the agent.
+
+ALTER TABLE shipments
+  ADD COLUMN IF NOT EXISTS sales_agent_commission_per_kg NUMERIC(10,2) NOT NULL DEFAULT 0.00;
+
+-- Rebuild total_receivable to include the sales agent commission
+ALTER TABLE shipments DROP COLUMN IF EXISTS total_receivable;
+ALTER TABLE shipments ADD COLUMN total_receivable NUMERIC(14,2) GENERATED ALWAYS AS (
+  ROUND(chargeable_weight * net_rate, 2)
+  + clearing_charges
+  + idc_tax
+  + other_charges
+  + ROUND(COALESCE(form_e_usd_value, 0) * COALESCE(form_e_pkr_rate, 0), 2)
+  + amendment_charges
+  + ROUND(chargeable_weight * sales_agent_commission_per_kg, 2)
+) STORED;
+
+-- ── Sales Agent Payments ──────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS sales_agent_payments (
+  id             UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id       UUID          NOT NULL REFERENCES sales_agents(id),
+  payment_date   DATE          NOT NULL,
+  amount         NUMERIC(14,2) NOT NULL,
+  period_start   DATE,
+  period_end     DATE,
+  bank_account   TEXT,
+  transaction_id TEXT,
+  notes          TEXT,
+  created_by     UUID          REFERENCES profiles(id),
+  created_at     TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sales_agent_pmts_agent ON sales_agent_payments(agent_id);
+
+ALTER TABLE sales_agent_payments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "authenticated_access" ON sales_agent_payments;
+CREATE POLICY "authenticated_access" ON sales_agent_payments
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+

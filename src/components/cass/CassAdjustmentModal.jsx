@@ -49,11 +49,11 @@ export function CassAdjustmentModal({ periodId, existing, onClose, onSaved }) {
     <Modal title={existing ? 'Edit Adjustment' : 'Add Adjustment'} onClose={onClose}>
       <div className="space-y-4">
         <Field label="Description" required>
-          <input className={INP} value={form.description} onChange={setF('description')}
+          <input name="description" className={INP} value={form.description} onChange={setF('description')}
             placeholder="e.g. Credit from previous period, BTA correction…" />
         </Field>
         <Field label="Amount (PKR)" required hint="negative for credit">
-          <input type="number" step="0.01" className={INP}
+          <input type="number" name="amount" step="0.01" className={INP}
             value={form.amount} onChange={setF('amount')} placeholder="e.g. -5000.00 or 2500.00" />
         </Field>
         <p className="text-xs text-gray-400">

@@ -73,17 +73,21 @@ function defaultPeriodKey() {
     : `${y}-${m}-16|${y}-${m}-${ld}`
 }
 
-// Calculate CASS values for one shipment row
-// Rates are USD/kg; pkr_exchange_rate converts to PKR for settlement
-function calcRow(s, whtRate) {
-  const pkrRate      = Number(s.pkr_exchange_rate || 1)
-  const pwc          = r2(Number(s.chargeable_weight || 0) * Number(s.cass_airline_rate || 0) * pkrRate)
-  const oc_agent     = r2(Number(s.other_charges || 0))
-  const oc_airline   = r2(Number(s.amendment_charges || 0))
-  const netBeforeWHT = r2(pwc - oc_agent + oc_airline)
-  const tax_withheld = r2(netBeforeWHT * whtRate / 100)
-  const net_amount   = r2(netBeforeWHT - tax_withheld)
-  return { pwc, oc_agent, oc_airline, tax_withheld, net_amount }
+// Calculate CASS values for one shipment row.
+// For PIA only: WHT = whtRate% of profit (client freight - CASS cost), added on top.
+// For all other airlines: no WHT.
+function calcRow(s, whtRate, isPia) {
+  const pkrRate    = Number(s.pkr_exchange_rate || 1)
+  const pwc        = r2(Number(s.chargeable_weight || 0) * Number(s.cass_airline_rate || 0) * pkrRate)
+  const oc_airline = r2(Number(s.amendment_charges || 0))
+  let tax_withheld = 0
+  if (isPia) {
+    const freight_amount = r2(Number(s.chargeable_weight || 0) * Number(s.net_rate || 0))
+    const profit         = r2(freight_amount - pwc)
+    tax_withheld         = r2(Math.max(0, profit) * whtRate / 100)
+  }
+  const net_amount = r2(pwc + oc_airline + tax_withheld)
+  return { pwc, oc_airline, tax_withheld, net_amount }
 }
 
 const STATUS_CONFIG = {
@@ -187,7 +191,7 @@ export default function CassReports() {
     // 2. Shipments for this airline + period
     const { data: sData, error: sErr } = await supabase
       .from('shipments')
-      .select('id,flight_date,awb_number,origin,destination,pieces,chargeable_weight,other_charges,amendment_charges,cass_airline_rate,pkr_exchange_rate,clients(name)')
+      .select('id,flight_date,awb_number,origin,destination,pieces,chargeable_weight,other_charges,amendment_charges,cass_airline_rate,pkr_exchange_rate,net_rate,clients(name)')
       .eq('airline_id', selectedAirlineId)
       .gte('flight_date', period.start)
       .lte('flight_date', period.end)
@@ -220,29 +224,30 @@ export default function CassReports() {
   const rows = useMemo(() => {
     if (!airline) return []
     const whtRate = Number(settings?.cass_wht_rate || 12)
-    return shipments.map((s) => ({ ...s, ...calcRow(s, whtRate) }))
+    const isPia   = airline.iata_prefix === '214'
+    return shipments.map((s) => ({ ...s, ...calcRow(s, whtRate, isPia) }))
   }, [shipments, airline, settings])
 
   // ── Recapitulation ──────────────────────────────────────────────────────────
   const recap = useMemo(() => {
-    const totalWeight   = rows.reduce((s, r) => s + Number(r.chargeable_weight || 0), 0)
-    const totalPWC      = r2(rows.reduce((s, r) => s + r.pwc, 0))
-    const totalOCAgent  = r2(rows.reduce((s, r) => s + r.oc_agent, 0))
+    const totalWeight    = rows.reduce((s, r) => s + Number(r.chargeable_weight || 0), 0)
+    const totalPWC       = r2(rows.reduce((s, r) => s + r.pwc, 0))
     const totalOCAirline = r2(rows.reduce((s, r) => s + r.oc_airline, 0))
-    const totalWHT      = r2(rows.reduce((s, r) => s + r.tax_withheld, 0))
-    const totalNet      = r2(rows.reduce((s, r) => s + r.net_amount, 0))
-    const awbCount      = rows.length
-    const bta           = r2(Number(airline?.bta_rate_per_awb || 0) * awbCount)
-    const totalAdj      = r2(adjustments.reduce((s, a) => s + Number(a.amount || 0), 0))
-    const netDueExport  = r2(totalPWC - totalOCAgent - totalWHT + totalAdj)
-    const grandTotal    = r2(netDueExport + bta)
-    const totalPaid     = r2(payments.reduce((s, p) => s + Number(p.amount || 0), 0))
-    const balanceDue    = r2(grandTotal - totalPaid)
+    const totalWHT       = r2(rows.reduce((s, r) => s + r.tax_withheld, 0))
+    const totalNet       = r2(rows.reduce((s, r) => s + r.net_amount, 0))
+    const awbCount       = rows.length
+    const bta            = r2(Number(airline?.bta_rate_per_awb || 0) * awbCount)
+    const totalAdj       = r2(adjustments.reduce((s, a) => s + Number(a.amount || 0), 0))
+    const netDueExport   = r2(totalNet + totalAdj)
+    const grandTotal     = r2(netDueExport + bta)
+    const totalPaid      = r2(payments.reduce((s, p) => s + Number(p.amount || 0), 0))
+    const balanceDue     = r2(grandTotal - totalPaid)
     return {
-      totalWeight, totalPWC, totalOCAgent, totalOCAirline,
+      totalWeight, totalPWC, totalOCAirline,
       totalWHT, totalNet, awbCount, bta, totalAdj,
       netDueExport, grandTotal, totalPaid, balanceDue,
       status: cassperiod?.status ?? 'Pending',
+      isPia: airline?.iata_prefix === '214',
     }
   }, [rows, adjustments, payments, airline, cassperiod])
 
@@ -412,7 +417,7 @@ export default function CassReports() {
                 <p className="text-sm text-blue-200 mt-0.5">
                   Period: {fmtDate(period?.start)} – {fmtDate(period?.end)}
                   &nbsp;|&nbsp; Prefix: {airline?.iata_prefix}
-                  &nbsp;|&nbsp; WHT: {settings?.cass_wht_rate ?? 12}%
+                  &nbsp;|&nbsp; WHT: {recap.isPia ? `${settings?.cass_wht_rate ?? 12}% of Profit` : 'N/A'}
                 </p>
               </div>
               <div className="text-right">
@@ -440,7 +445,6 @@ export default function CassReports() {
                     <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide">DST</th>
                     <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Weight (KGS)</th>
                     <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Prepaid Wgt Charges</th>
-                    <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">OC Due Agent</th>
                     <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">OC Due Airline</th>
                     <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Tax Withheld</th>
                     <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide">SPIN</th>
@@ -450,7 +454,7 @@ export default function CassReports() {
                 <tbody className="divide-y divide-gray-100">
                   {rows.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="text-center py-12 text-gray-400 text-sm">
+                      <td colSpan={10} className="text-center py-12 text-gray-400 text-sm">
                         No shipments found for {airline?.name} in {period?.label}.
                       </td>
                     </tr>
@@ -466,12 +470,16 @@ export default function CassReports() {
                         </td>
                         <td className="px-3 py-2 text-right font-mono text-gray-900">{fmt(r.pwc)}</td>
                         <td className="px-3 py-2 text-right font-mono text-gray-700">
-                          {r.oc_agent > 0 ? `(${fmt(r.oc_agent)})` : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-gray-700">
                           {r.oc_airline > 0 ? fmt(r.oc_airline) : '—'}
                         </td>
-                        <td className="px-3 py-2 text-right font-mono text-purple-700">({fmt(r.tax_withheld)})</td>
+                        <td className="px-3 py-2 text-right font-mono">
+                          {recap.isPia
+                            ? r.tax_withheld > 0
+                              ? <span className="text-purple-700">({fmt(r.tax_withheld)})</span>
+                              : <span className="text-gray-400">—</span>
+                            : <span className="text-gray-400">Nil</span>
+                          }
+                        </td>
                         <td className="px-3 py-2 text-center text-gray-500 text-xs">{i + 1}</td>
                         <td className="px-3 py-2 text-right font-mono font-semibold text-navy">{fmt(r.net_amount)}</td>
                       </tr>
@@ -489,12 +497,11 @@ export default function CassReports() {
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">{fmt(recap.totalPWC)}</td>
                       <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">
-                        {recap.totalOCAgent > 0 ? `(${fmt(recap.totalOCAgent)})` : '—'}
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">
                         {recap.totalOCAirline > 0 ? fmt(recap.totalOCAirline) : '—'}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">({fmt(recap.totalWHT)})</td>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">
+                        {recap.isPia ? `(${fmt(recap.totalWHT)})` : 'Nil'}
+                      </td>
                       <td></td>
                       <td className="px-3 py-2.5 text-right font-mono font-bold text-sm">{fmt(recap.totalNet)}</td>
                     </tr>
@@ -516,10 +523,12 @@ export default function CassReports() {
                 <table className="w-full text-sm">
                   <tbody>
                     <RecapRow label="Total Prepaid Weight Charges" value={recap.totalPWC} />
-                    {recap.totalOCAgent > 0 && (
-                      <RecapRow label="Other Charges Due Agent" value={-recap.totalOCAgent} sub />
+                    {recap.totalOCAirline > 0 && (
+                      <RecapRow label="Other Charges Due Airline" value={recap.totalOCAirline} sub />
                     )}
-                    <RecapRow label={`WHT @ ${settings?.cass_wht_rate ?? 12}%`} value={-recap.totalWHT} sub purple />
+                    {recap.isPia && recap.totalWHT > 0 && (
+                      <RecapRow label={`WHT @ ${settings?.cass_wht_rate ?? 12}% of Profit`} value={recap.totalWHT} sub amber />
+                    )}
                     {adjustments.map((a) => (
                       <RecapRow
                         key={a.id}
@@ -589,7 +598,7 @@ export default function CassReports() {
                   <p className="font-mono font-bold text-amber-900 text-lg">
                     PKR {fmt(recap.netDueExport)}
                   </p>
-                  <p className="text-xs text-amber-400">After OC &amp; WHT</p>
+                  <p className="text-xs text-amber-400">{recap.isPia ? 'After OC & WHT' : 'After OC'}</p>
                 </div>
               </div>
             </div>

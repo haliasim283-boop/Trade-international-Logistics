@@ -137,7 +137,7 @@ export default function Shipments() {
       supabase.from('clients').select('id, name').eq('is_active', true).order('name'),
       supabase.from('clearing_agents').select('*').eq('is_active', true).order('city'),
       supabase.from('form_e_suppliers').select('id, name').eq('is_active', true).order('name'),
-      supabase.from('company_settings').select('idc_tax_rate').eq('id', 1).single(),
+      supabase.from('company_settings').select('*').eq('id', 1).single(),
       supabase.from('sales_agents').select('id, name, commission_pkr_per_kg').eq('is_active', true).order('name'),
     ])
 
@@ -297,6 +297,7 @@ export default function Shipments() {
           <CardBody className="py-3">
             <div className="flex flex-wrap gap-2 items-center">
               <input
+                name="search"
                 className={INP_F}
                 style={{ minWidth: 160 }}
                 placeholder="Search AWB or client…"
@@ -305,33 +306,33 @@ export default function Shipments() {
               />
 
               {/* Fortnight shortcut */}
-              <select className={INP_F} onChange={applyFortnight}
+              <select name="fortnight" className={INP_F} onChange={applyFortnight}
                 value={fortnights.find((f) => f.from === filterFrom && f.to === filterTo)?.key ?? ''}>
                 <option value="">Fortnight…</option>
                 {fortnights.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
               </select>
 
-              <input type="date" className={INP_F} value={filterFrom}
+              <input type="date" name="filter_from" className={INP_F} value={filterFrom}
                 onChange={(e) => setFilterFrom(e.target.value)} title="From date" />
-              <input type="date" className={INP_F} value={filterTo}
+              <input type="date" name="filter_to" className={INP_F} value={filterTo}
                 onChange={(e) => setFilterTo(e.target.value)} title="To date" />
 
-              <select className={INP_F} value={filterAirline} onChange={(e) => setFilterAirline(e.target.value)}>
+              <select name="filter_airline" className={INP_F} value={filterAirline} onChange={(e) => setFilterAirline(e.target.value)}>
                 <option value="">All airlines</option>
                 {airlines.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
 
-              <select className={INP_F} value={filterClient} onChange={(e) => setFilterClient(e.target.value)}>
+              <select name="filter_client" className={INP_F} value={filterClient} onChange={(e) => setFilterClient(e.target.value)}>
                 <option value="">All clients</option>
                 {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
 
-              <select className={INP_F} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+              <select name="filter_status" className={INP_F} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
                 <option value="">All statuses</option>
                 {STATUSES.map((s) => <option key={s}>{s}</option>)}
               </select>
 
-              <input className={INP_F} style={{ width: 70 }} value={filterOrigin}
+              <input name="filter_origin" className={INP_F} style={{ width: 70 }} value={filterOrigin}
                 onChange={(e) => setFilterOrigin(e.target.value)}
                 placeholder="ORG" maxLength={3} title="Filter by origin" />
 

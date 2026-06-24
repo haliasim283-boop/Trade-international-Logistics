@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
+import { supabase } from '../../lib/supabase'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ const BLANK = {
   form_e_usd_value:         '',
   form_e_pkr_rate:          '',
   other_charges:            '',
+  amendment_charges:        '',
   adjustment_ref_invoice_no: '',
   adjustment_amount:        '',
   notes:                    '',
@@ -38,8 +40,10 @@ const BLANK = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAgents = [], onSave, onClose, saving }) {
-  const [form,    setForm]    = useState(BLANK)
-  const [showAdj, setShowAdj] = useState(false)
+  const [form,             setForm]          = useState(BLANK)
+  const [showAdj,          setShowAdj]       = useState(false)
+  const [awbStatus,        setAwbStatus]     = useState(null)  // null | 'loading' | 'found' | 'not-found'
+  const [saCommissionPkr,  setSaCommission]  = useState(0)
 
   // ── Pre-fill ──────────────────────────────────────────────────────────────
 
@@ -62,6 +66,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
         form_e_usd_value:         invoice.form_e_usd_value         ?? '',
         form_e_pkr_rate:          invoice.form_e_pkr_rate          ?? '',
         other_charges:            round2(Number(invoice.other_charges || 0) / Number(invoice.pkr_exchange_rate || 280)),
+        amendment_charges:        invoice.amendment_charges ?? '',
         adjustment_ref_invoice_no: invoice.adjustment_ref_invoice_no ?? '',
         adjustment_amount:        invoice.adjustment_amount        ?? '',
         notes:                    invoice.notes                    ?? '',
@@ -88,10 +93,12 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
         form_e_usd_value:         shipment.form_e_usd_value  ?? '',
         form_e_pkr_rate:          shipment.form_e_pkr_rate   ?? '',
         other_charges:            round2(Number(shipment.other_charges || 0) / Number(shipment.pkr_exchange_rate || 280)),
+        amendment_charges:        String(round2(Number(shipment.amendment_charges || 0))),
         adjustment_ref_invoice_no: '',
         adjustment_amount:        '',
         notes:                    '',
       })
+      setSaCommission(round2(Number(shipment.sales_agent_commission_per_kg || 0) * Number(shipment.chargeable_weight || 0)))
     }
   }, [invoice, shipment])
 
@@ -99,6 +106,36 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
 
   function set(key) {
     return (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
+  }
+
+  async function handleAwbBlur() {
+    const awb = form.awb_number.trim()
+    if (!awb || !supabase) return
+    setAwbStatus('loading')
+    const { data } = await supabase
+      .from('shipments')
+      .select('origin, destination, pieces, chargeable_weight, net_rate, pkr_exchange_rate, clearing_agent_id, clearing_charges, idc_tax, other_charges, amendment_charges, form_e_usd_value, form_e_pkr_rate, client_id, sales_agent_commission_per_kg')
+      .ilike('awb_number', awb)
+      .maybeSingle()
+    if (!data) { setAwbStatus('not-found'); return }
+    setAwbStatus('found')
+    setSaCommission(round2(Number(data.sales_agent_commission_per_kg || 0) * Number(data.chargeable_weight || 0)))
+    setForm((f) => ({
+      ...f,
+      origin:            data.origin      || f.origin,
+      destination:       data.destination || f.destination,
+      pieces:            f.pieces            || data.pieces      || '',
+      chargeable_weight: f.chargeable_weight || data.chargeable_weight || '',
+      net_rate:          f.net_rate          || data.net_rate          || '',
+      pkr_exchange_rate: f.pkr_exchange_rate || data.pkr_exchange_rate || 280,
+      client_id:         f.client_id         || data.client_id         || '',
+      clearing_agent_id: f.clearing_agent_id || data.clearing_agent_id || '',
+      clearing_charges:  f.clearing_charges  || String(round2(Number(data.clearing_charges || 0) + Number(data.idc_tax || 0))),
+      other_charges:     f.other_charges     || round2(Number(data.other_charges || 0) / Number(data.pkr_exchange_rate || 280)),
+      amendment_charges: f.amendment_charges || String(round2(Number(data.amendment_charges || 0))),
+      form_e_usd_value:  f.form_e_usd_value  || data.form_e_usd_value || '',
+      form_e_pkr_rate:   f.form_e_pkr_rate   || data.form_e_pkr_rate  || '',
+    }))
   }
 
   function handleAgentChange(id) {
@@ -116,12 +153,15 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
   const freightAmount = round2(Number(form.chargeable_weight || 0) * Number(form.net_rate || 0))
   const formEAmount   = round2(Number(form.form_e_usd_value || 0) * Number(form.form_e_pkr_rate || 0))
   const otherChgPkr   = round2(Number(form.other_charges || 0) * pkrRate)
+  const amendmentChg  = round2(Number(form.amendment_charges || 0))
   const adjAmount     = showAdj ? round2(Number(form.adjustment_amount || 0)) : 0
   const totalAmount   = round2(
     freightAmount
     + round2(Number(form.clearing_charges || 0))
     + formEAmount
     + otherChgPkr
+    + saCommissionPkr
+    + amendmentChg
     + adjAmount
   )
 
@@ -147,7 +187,8 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
       form_e_usd_value:         form.form_e_usd_value ? Number(form.form_e_usd_value) : null,
       form_e_pkr_rate:          form.form_e_pkr_rate  ? Number(form.form_e_pkr_rate)  : null,
       form_e_amount:            formEAmount,
-      other_charges:            otherChgPkr,
+      other_charges:            round2(otherChgPkr + saCommissionPkr),
+      amendment_charges:        amendmentChg,
       adjustment_ref_invoice_no: showAdj ? (form.adjustment_ref_invoice_no.trim() || null) : null,
       adjustment_amount:        showAdj ? adjAmount : null,
       total_amount:             totalAmount,
@@ -178,18 +219,18 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
         <div className="grid grid-cols-3 gap-4">
           <div>
             <label className={LBL}>Client *</label>
-            <select className={INP} value={form.client_id} onChange={set('client_id')} required>
+            <select name="client_id" className={INP} value={form.client_id} onChange={set('client_id')} required>
               <option value="">Select client…</option>
               {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div>
             <label className={LBL}>Invoice Date *</label>
-            <input type="date" className={INP} value={form.invoice_date} onChange={set('invoice_date')} required />
+            <input type="date" name="invoice_date" className={INP} value={form.invoice_date} onChange={set('invoice_date')} required />
           </div>
           <div>
             <label className={LBL}>Status</label>
-            <select className={INP} value={form.status} onChange={set('status')}>
+            <select name="status" className={INP} value={form.status} onChange={set('status')}>
               <option>Draft</option>
               <option>Sent</option>
               <option>Partially Paid</option>
@@ -202,17 +243,35 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
         <div className="grid grid-cols-3 gap-4">
           <div>
             <label className={LBL}>AWB Number *</label>
-            <input
-              className={INP + ' font-mono'}
-              value={form.awb_number}
-              onChange={set('awb_number')}
-              required
-              placeholder="e.g. 214-1234-5678"
-            />
+            <div className="relative">
+              <input
+                className={INP + ' font-mono pr-24'}
+                value={form.awb_number}
+                onChange={(e) => { set('awb_number')(e); setAwbStatus(null) }}
+                onBlur={handleAwbBlur}
+                required
+                placeholder="e.g. 214-1234-5678"
+              />
+              {awbStatus === 'loading' && (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-gray-400">
+                  <Spinner size="sm" /> Looking up…
+                </span>
+              )}
+              {awbStatus === 'found' && (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                  ✓ Auto-filled
+                </span>
+              )}
+              {awbStatus === 'not-found' && (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                  Not found
+                </span>
+              )}
+            </div>
           </div>
           <div>
             <label className={LBL}>Origin (IATA) *</label>
-            <select className={INP} value={form.origin} onChange={set('origin')} required>
+            <select name="origin" className={INP} value={form.origin} onChange={set('origin')} required>
               <option value="">Select origin…</option>
               {['PEW','ISB','MUX','SKT','LHE','KHI'].map((c) => (
                 <option key={c} value={c}>{c}</option>
@@ -221,7 +280,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
           </div>
           <div>
             <label className={LBL}>Destination (IATA) *</label>
-            <select className={INP} value={form.destination} onChange={set('destination')} required>
+            <select name="destination" className={INP} value={form.destination} onChange={set('destination')} required>
               <option value="">Select destination…</option>
               {['DXB','DOH','AUH','SHJ','BAH','JED','MCT','AAN','KWI','RUH','RKT','MAN','YYZ','LHR'].map((c) => (
                 <option key={c} value={c}>{c}</option>
@@ -234,21 +293,21 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={LBL}>USD → PKR Exchange Rate</label>
-            <input type="number" step="0.01" min="1" className={INP} value={form.pkr_exchange_rate} onChange={set('pkr_exchange_rate')} placeholder="280.00" />
+            <input type="number" name="pkr_exchange_rate" step="0.01" min="1" className={INP} value={form.pkr_exchange_rate} onChange={set('pkr_exchange_rate')} placeholder="280.00" />
           </div>
         </div>
         <div className="grid grid-cols-4 gap-4">
           <div>
             <label className={LBL}>Pieces</label>
-            <input type="number" className={INP} value={form.pieces} onChange={set('pieces')} min={1} placeholder="0" />
+            <input type="number" name="pieces" className={INP} value={form.pieces} onChange={set('pieces')} min={1} placeholder="0" />
           </div>
           <div>
             <label className={LBL}>Weight (KGS)</label>
-            <input type="number" step="0.001" className={INP} value={form.chargeable_weight} onChange={set('chargeable_weight')} placeholder="0.000" />
+            <input type="number" name="chargeable_weight" step="0.001" className={INP} value={form.chargeable_weight} onChange={set('chargeable_weight')} placeholder="0.000" />
           </div>
           <div>
             <label className={LBL}>Net Rate (USD/kg)</label>
-            <input type="number" step="0.0001" className={INP} value={form.net_rate} onChange={set('net_rate')} placeholder="0.00" />
+            <input type="number" name="net_rate" step="0.0001" className={INP} value={form.net_rate} onChange={set('net_rate')} placeholder="0.00" />
           </div>
           <div>
             <label className={LBL}>Freight Amount (PKR)</label>
@@ -262,6 +321,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
             <label className={LBL}>Customs Clearance Agent</label>
             <select
               className={INP}
+              name="clearing_agent_id"
               value={form.clearing_agent_id}
               onChange={(e) => handleAgentChange(e.target.value)}
             >
@@ -279,6 +339,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
               type="number"
               step="0.01"
               className={INP}
+              name="clearing_charges"
               value={form.clearing_charges}
               onChange={set('clearing_charges')}
               placeholder="0.00"
@@ -295,11 +356,11 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className={LBL}>USD Value</label>
-              <input type="number" step="0.01" className={INP} value={form.form_e_usd_value} onChange={set('form_e_usd_value')} placeholder="0.00" />
+              <input type="number" name="form_e_usd_value" step="0.01" className={INP} value={form.form_e_usd_value} onChange={set('form_e_usd_value')} placeholder="0.00" />
             </div>
             <div>
               <label className={LBL}>PKR Rate per USD</label>
-              <input type="number" step="0.01" className={INP} value={form.form_e_pkr_rate} onChange={set('form_e_pkr_rate')} placeholder="0.00" />
+              <input type="number" name="form_e_pkr_rate" step="0.01" className={INP} value={form.form_e_pkr_rate} onChange={set('form_e_pkr_rate')} placeholder="0.00" />
             </div>
             <div>
               <label className={LBL}>Form E Amount (PKR)</label>
@@ -308,11 +369,15 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
           </div>
         </div>
 
-        {/* ── Row 6: Airline Other Charges ──────────────────────────── */}
+        {/* ── Row 6: Airline Other Charges + Amendment ──────────────── */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={LBL}>Airline Other Charges + AWB Fee (USD)</label>
-            <input type="number" step="0.01" className={INP} value={form.other_charges} onChange={set('other_charges')} placeholder="0.00" />
+            <input type="number" name="other_charges" step="0.01" className={INP} value={form.other_charges} onChange={set('other_charges')} placeholder="0.00" />
+          </div>
+          <div>
+            <label className={LBL}>Amendment Charges (PKR)</label>
+            <input type="number" name="amendment_charges" step="0.01" className={INP} value={form.amendment_charges} onChange={set('amendment_charges')} placeholder="0.00" />
           </div>
         </div>
 
@@ -332,6 +397,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
               <div>
                 <label className={LBL}>Reference Invoice No.</label>
                 <input
+                  name="adjustment_ref_invoice_no"
                   className={INP + ' font-mono'}
                   value={form.adjustment_ref_invoice_no}
                   onChange={set('adjustment_ref_invoice_no')}
@@ -344,6 +410,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
                   type="number"
                   step="0.01"
                   className={INP}
+                  name="adjustment_amount"
                   value={form.adjustment_amount}
                   onChange={set('adjustment_amount')}
                   placeholder="0.00 or -500.00"
@@ -357,6 +424,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
         <div>
           <label className={LBL}>Notes</label>
           <textarea
+            name="notes"
             className={INP}
             rows={2}
             value={form.notes}
@@ -387,10 +455,16 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
                 <span className="font-mono">PKR {fmt2(formEAmount)}</span>
               </div>
             )}
-            {otherChgPkr > 0 && (
+            {(otherChgPkr + saCommissionPkr) > 0 && (
               <div className="flex justify-between text-gray-600">
                 <span>Other Charges</span>
-                <span className="font-mono">PKR {fmt2(otherChgPkr)}</span>
+                <span className="font-mono">PKR {fmt2(otherChgPkr + saCommissionPkr)}</span>
+              </div>
+            )}
+            {amendmentChg > 0 && (
+              <div className="flex justify-between text-gray-600">
+                <span>Amendment Charges</span>
+                <span className="font-mono">PKR {fmt2(amendmentChg)}</span>
               </div>
             )}
             {showAdj && adjAmount !== 0 && (

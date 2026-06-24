@@ -67,7 +67,7 @@ export function PaymentModal({ clientId, onSave, onClose, saving }) {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={LBL}>Payment Date *</label>
-            <input type="date" className={INP} value={form.payment_date} onChange={set('payment_date')} required />
+            <input type="date" name="payment_date" className={INP} value={form.payment_date} onChange={set('payment_date')} required />
           </div>
           <div>
             <label className={LBL}>Amount Received (PKR) *</label>
@@ -76,6 +76,7 @@ export function PaymentModal({ clientId, onSave, onClose, saving }) {
               step="0.01"
               min="0.01"
               className={INP}
+              name="amount"
               value={form.amount}
               onChange={set('amount')}
               required
@@ -88,13 +89,13 @@ export function PaymentModal({ clientId, onSave, onClose, saving }) {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={LBL}>Payment Method</label>
-            <select className={INP} value={form.payment_method} onChange={set('payment_method')}>
+            <select name="payment_method" className={INP} value={form.payment_method} onChange={set('payment_method')}>
               {METHODS.map((m) => <option key={m}>{m}</option>)}
             </select>
           </div>
           <div>
             <label className={LBL}>Received Into (Trade's Bank)</label>
-            <select className={INP} value={form.bank_account} onChange={set('bank_account')}>
+            <select name="bank_account" className={INP} value={form.bank_account} onChange={set('bank_account')}>
               {BANKS.map((b) => <option key={b}>{b}</option>)}
             </select>
           </div>
@@ -103,13 +104,14 @@ export function PaymentModal({ clientId, onSave, onClose, saving }) {
         {/* TRX ID */}
         <div>
           <label className={LBL}>Transaction ID / Cheque No.</label>
-          <input className={INP} value={form.transaction_id} onChange={set('transaction_id')} placeholder="e.g. 115354" />
+          <input name="transaction_id" className={INP} value={form.transaction_id} onChange={set('transaction_id')} placeholder="e.g. 115354" />
         </div>
 
         {/* Description */}
         <div>
           <label className={LBL}>Description (shown in ledger statement)</label>
           <input
+            name="description"
             className={INP}
             value={form.description}
             onChange={(e) => { setDescEdited(true); set('description')(e) }}
@@ -123,7 +125,7 @@ export function PaymentModal({ clientId, onSave, onClose, saving }) {
         {/* Notes */}
         <div>
           <label className={LBL}>Notes (internal only)</label>
-          <input className={INP} value={form.notes} onChange={set('notes')} placeholder="Optional" />
+          <input name="notes" className={INP} value={form.notes} onChange={set('notes')} placeholder="Optional" />
         </div>
 
         <div className="flex gap-3 justify-end pt-1">

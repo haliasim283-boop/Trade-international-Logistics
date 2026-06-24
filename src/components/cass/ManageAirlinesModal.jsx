@@ -173,35 +173,35 @@ export function ManageAirlinesModal({ onClose, onChanged }) {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <Field label="Airline Name" required>
-                <input className={INP} value={form.name} onChange={setF('name')} placeholder="e.g. Emirates" />
+                <input name="name" className={INP} value={form.name} onChange={setF('name')} placeholder="e.g. Emirates" />
               </Field>
               <Field label="IATA Prefix (3-digit numeric)" required>
                 <input
-                  className={INP} value={form.iata_prefix} maxLength={3}
+                  name="iata_prefix" className={INP} value={form.iata_prefix} maxLength={3}
                   onChange={setF('iata_prefix')} placeholder="e.g. 176"
                 />
               </Field>
             </div>
             <div className="grid grid-cols-3 gap-4">
               <Field label="CASS Commission (USD/kg)">
-                <input type="number" step="0.0001" min="0" className={INP}
+                <input type="number" name="cass_commission_usd_per_kg" step="0.0001" min="0" className={INP}
                   value={form.cass_commission_usd_per_kg} onChange={setN('cass_commission_usd_per_kg')} />
               </Field>
               <Field label="Self-Upload Charges (USD — agent uploads AWB)">
-                <input type="number" step="0.01" min="0" className={INP}
+                <input type="number" name="other_charges_self_upload" step="0.01" min="0" className={INP}
                   value={form.other_charges_self_upload} onChange={setN('other_charges_self_upload')} />
               </Field>
               <Field label="AWB Airline Upload Charges (USD — airline uploads)">
-                <input type="number" step="0.01" min="0" className={INP}
+                <input type="number" name="awb_airline_upload_charges" step="0.01" min="0" className={INP}
                   value={form.awb_airline_upload_charges} onChange={setN('awb_airline_upload_charges')} />
               </Field>
             </div>
             <Field label="BTA Rate per AWB (PKR)">
-              <input type="number" step="0.01" min="0" className={INP}
+              <input type="number" name="bta_rate_per_awb" step="0.01" min="0" className={INP}
                 value={form.bta_rate_per_awb} onChange={setN('bta_rate_per_awb')} />
             </Field>
             <Field label="CASS Rate Notes">
-              <textarea className={INP} rows={2} value={form.default_cass_rate_notes}
+              <textarea name="default_cass_rate_notes" className={INP} rows={2} value={form.default_cass_rate_notes}
                 onChange={setF('default_cass_rate_notes')} placeholder="Any notes on the standard CASS rate…" />
             </Field>
             <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">

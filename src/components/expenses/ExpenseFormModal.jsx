@@ -90,35 +90,35 @@ export function ExpenseFormModal({ existing, onClose, onSaved }) {
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <Field label="Date" required>
-            <input type="date" className={INP} value={form.expense_date} onChange={setF('expense_date')} />
+            <input type="date" name="expense_date" className={INP} value={form.expense_date} onChange={setF('expense_date')} />
           </Field>
           <Field label="Amount (PKR)" required>
-            <input type="number" step="0.01" min="0" className={INP}
+            <input type="number" name="amount" step="0.01" min="0" className={INP}
               value={form.amount} onChange={setF('amount')} placeholder="0.00" />
           </Field>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Category" required>
-            <select className={SEL} value={form.category} onChange={setF('category')}>
+            <select name="category" className={SEL} value={form.category} onChange={setF('category')}>
               {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </Field>
           <Field label="Payee">
-            <input className={INP} value={form.payee} onChange={setF('payee')}
+            <input name="payee" className={INP} value={form.payee} onChange={setF('payee')}
               placeholder="e.g. PIA, Haider Ali, Utility Company…" />
           </Field>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Payment Method" required>
-            <select className={SEL} value={form.payment_method} onChange={setF('payment_method')}>
+            <select name="payment_method" className={SEL} value={form.payment_method} onChange={setF('payment_method')}>
               {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
           </Field>
           {needsBank ? (
             <Field label="Bank Account">
-              <select className={SEL} value={form.bank_account} onChange={setF('bank_account')}>
+              <select name="bank_account" className={SEL} value={form.bank_account} onChange={setF('bank_account')}>
                 {BANKS.map((b) => <option key={b} value={b}>{b}</option>)}
               </select>
             </Field>
@@ -129,17 +129,17 @@ export function ExpenseFormModal({ existing, onClose, onSaved }) {
 
         <div className="grid grid-cols-2 gap-4">
           <Field label={form.payment_method === 'Cheque' ? 'Cheque No.' : 'Transaction ID / Ref'}>
-            <input className={INP} value={form.transaction_id} onChange={setF('transaction_id')}
+            <input name="transaction_id" className={INP} value={form.transaction_id} onChange={setF('transaction_id')}
               placeholder={form.payment_method === 'Cheque' ? 'CHQ-XXXX' : 'TRX-XXXX'} />
           </Field>
           <Field label="Receipt No.">
-            <input className={INP} value={form.receipt_number} onChange={setF('receipt_number')}
+            <input name="receipt_number" className={INP} value={form.receipt_number} onChange={setF('receipt_number')}
               placeholder="Optional receipt number" />
           </Field>
         </div>
 
         <Field label="Description / Notes">
-          <textarea className={INP} rows={2} value={form.description} onChange={setF('description')}
+          <textarea name="description" className={INP} rows={2} value={form.description} onChange={setF('description')}
             placeholder="Optional description…" />
         </Field>
 

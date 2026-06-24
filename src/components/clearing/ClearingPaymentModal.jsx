@@ -58,26 +58,26 @@ export function ClearingPaymentModal({ agentId, periodStart, periodEnd, onClose,
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <Field label="Payment Date" required>
-            <input type="date" className={INP} value={form.payment_date} onChange={setF('payment_date')} />
+            <input type="date" name="payment_date" className={INP} value={form.payment_date} onChange={setF('payment_date')} />
           </Field>
           <Field label="Amount (PKR)" required>
-            <input type="number" step="0.01" min="0" className={INP}
+            <input type="number" name="amount" step="0.01" min="0" className={INP}
               value={form.amount} onChange={setF('amount')} placeholder="0.00" />
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-4">
           <Field label="Bank / Method">
-            <select className={INP} value={form.bank_account} onChange={setF('bank_account')}>
+            <select name="bank_account" className={INP} value={form.bank_account} onChange={setF('bank_account')}>
               {BANKS.map((b) => <option key={b} value={b}>{b}</option>)}
             </select>
           </Field>
           <Field label="Transaction ID / Reference">
-            <input className={INP} value={form.transaction_id} onChange={setF('transaction_id')}
+            <input name="transaction_id" className={INP} value={form.transaction_id} onChange={setF('transaction_id')}
               placeholder="TRX-XXXX" />
           </Field>
         </div>
         <Field label="Notes">
-          <textarea className={INP} rows={2} value={form.notes} onChange={setF('notes')}
+          <textarea name="notes" className={INP} rows={2} value={form.notes} onChange={setF('notes')}
             placeholder="Optional notes…" />
         </Field>
         <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">

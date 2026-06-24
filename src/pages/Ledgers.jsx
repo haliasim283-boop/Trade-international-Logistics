@@ -127,6 +127,31 @@ function exportCSV(entries, clientName) {
   URL.revokeObjectURL(url)
 }
 
+// ── Fortnight periods (same logic as CASS / Master Shipment Log) ─────────────
+
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+function generatePeriods() {
+  const periods = []
+  const now  = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth() - 17, 1)
+  const end   = new Date(now.getFullYear(), now.getMonth() + 2, 1)
+  let cur = new Date(start)
+  while (cur < end) {
+    const y  = cur.getFullYear()
+    const m  = cur.getMonth()
+    const mm = String(m + 1).padStart(2, '0')
+    const last = new Date(y, m + 1, 0).getDate()
+    const ld   = String(last).padStart(2, '0')
+    periods.push({ key: `${y}-${mm}-01|${y}-${mm}-15`, start: `${y}-${mm}-01`, end: `${y}-${mm}-15`, label: `${MONTH_NAMES[m]} ${y} — Period 1 (1–15)` })
+    periods.push({ key: `${y}-${mm}-16|${y}-${mm}-${ld}`, start: `${y}-${mm}-16`, end: `${y}-${mm}-${ld}`, label: `${MONTH_NAMES[m]} ${y} — Period 2 (16–${last})` })
+    cur = new Date(y, m + 1, 1)
+  }
+  return periods.reverse()
+}
+
+const PERIODS = generatePeriods()
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Ledgers() {
@@ -151,6 +176,7 @@ export default function Ledgers() {
   // ── Filters ──
   const [filterFrom, setFilterFrom] = useState('')
   const [filterTo,   setFilterTo]   = useState('')
+  const [selPeriod,  setSelPeriod]  = useState('')
 
   // ── Load client list + settings ──────────────────────────────────────────
 
@@ -334,7 +360,7 @@ export default function Ledgers() {
                 className={INP_F}
                 style={{ minWidth: 240 }}
                 value={selClientId}
-                onChange={(e) => { setSelClientId(e.target.value); setFilterFrom(''); setFilterTo('') }}
+                onChange={(e) => { setSelClientId(e.target.value); setFilterFrom(''); setFilterTo(''); setSelPeriod('') }}
               >
                 <option value="">Select a client…</option>
                 {allClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -342,23 +368,39 @@ export default function Ledgers() {
 
               {selClientId && (
                 <>
+                  <select
+                    className={INP_F}
+                    style={{ minWidth: 230 }}
+                    value={selPeriod}
+                    onChange={(e) => {
+                      const key = e.target.value
+                      setSelPeriod(key)
+                      if (!key) { setFilterFrom(''); setFilterTo(''); return }
+                      const p = PERIODS.find((x) => x.key === key)
+                      if (p) { setFilterFrom(p.start); setFilterTo(p.end) }
+                    }}
+                  >
+                    <option value="">Fortnight…</option>
+                    {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+                  </select>
+
                   <input
                     type="date"
                     className={INP_F}
                     value={filterFrom}
-                    onChange={(e) => setFilterFrom(e.target.value)}
+                    onChange={(e) => { setFilterFrom(e.target.value); setSelPeriod('') }}
                     title="From date"
                   />
                   <input
                     type="date"
                     className={INP_F}
                     value={filterTo}
-                    onChange={(e) => setFilterTo(e.target.value)}
+                    onChange={(e) => { setFilterTo(e.target.value); setSelPeriod('') }}
                     title="To date"
                   />
                   {(filterFrom || filterTo) && (
                     <button
-                      onClick={() => { setFilterFrom(''); setFilterTo('') }}
+                      onClick={() => { setFilterFrom(''); setFilterTo(''); setSelPeriod('') }}
                       className="text-xs text-accent hover:underline whitespace-nowrap"
                     >
                       Clear dates

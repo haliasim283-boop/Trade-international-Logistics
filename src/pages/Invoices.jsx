@@ -215,6 +215,7 @@ export default function Invoices() {
           <CardBody className="py-3">
             <div className="flex flex-wrap gap-2 items-center">
               <input
+                name="search"
                 className={INP_F}
                 style={{ minWidth: 200 }}
                 placeholder="Search invoice no., AWB, client…"
@@ -222,18 +223,19 @@ export default function Invoices() {
                 onChange={(e) => setSearch(e.target.value)}
               />
 
-              <select className={INP_F} value={filterClient} onChange={(e) => setFilterClient(e.target.value)}>
+              <select name="filter_client" className={INP_F} value={filterClient} onChange={(e) => setFilterClient(e.target.value)}>
                 <option value="">All clients</option>
                 {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
 
-              <select className={INP_F} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+              <select name="filter_status" className={INP_F} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
                 <option value="">All statuses</option>
                 {STATUSES.map((s) => <option key={s}>{s}</option>)}
               </select>
 
               <input
                 type="date"
+                name="filter_from"
                 className={INP_F}
                 value={filterFrom}
                 onChange={(e) => setFilterFrom(e.target.value)}
@@ -241,6 +243,7 @@ export default function Invoices() {
               />
               <input
                 type="date"
+                name="filter_to"
                 className={INP_F}
                 value={filterTo}
                 onChange={(e) => setFilterTo(e.target.value)}

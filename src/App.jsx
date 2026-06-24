@@ -12,8 +12,9 @@ import Invoices       from './pages/Invoices'
 import Ledgers        from './pages/Ledgers'
 import CassReports    from './pages/CassReports'
 import FormEReports   from './pages/FormEReports'
-import ClearingAgents from './pages/ClearingAgents'
-import Expenses       from './pages/Expenses'
+import ClearingAgents    from './pages/ClearingAgents'
+import SalesAgentReports from './pages/SalesAgentReports'
+import Expenses          from './pages/Expenses'
 import Income         from './pages/Income'
 import ProfitLoss     from './pages/ProfitLoss'
 import Settings       from './pages/Settings'
@@ -42,8 +43,9 @@ export default function App() {
       <Route path="/ledgers"    element={<Shell path="/ledgers"><Ledgers /></Shell>} />
       <Route path="/cass"       element={<Shell path="/cass"><CassReports /></Shell>} />
       <Route path="/form-e"     element={<Shell path="/form-e"><FormEReports /></Shell>} />
-      <Route path="/clearing"   element={<Shell path="/clearing"><ClearingAgents /></Shell>} />
-      <Route path="/expenses"   element={<Shell path="/expenses"><Expenses /></Shell>} />
+      <Route path="/clearing"     element={<Shell path="/clearing"><ClearingAgents /></Shell>} />
+      <Route path="/sales-agents" element={<Shell path="/sales-agents"><SalesAgentReports /></Shell>} />
+      <Route path="/expenses"     element={<Shell path="/expenses"><Expenses /></Shell>} />
       <Route path="/income"     element={<Shell path="/income"><Income /></Shell>} />
       <Route path="/pnl"        element={<Shell path="/pnl"><ProfitLoss /></Shell>} />
       <Route path="/settings"   element={<Shell path="/settings"><Settings /></Shell>} />

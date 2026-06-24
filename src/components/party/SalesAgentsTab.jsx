@@ -19,11 +19,7 @@ function Field({ label, required, children }) {
   )
 }
 
-function num(n) {
-  return Number(n).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-const EMPTY = { name: '', commission_pkr_per_kg: '', contact: '', notes: '' }
+const EMPTY = { name: '', contact: '', notes: '' }
 
 export function SalesAgentsTab() {
   const [rows,     setRows]     = useState([])
@@ -49,10 +45,9 @@ export function SalesAgentsTab() {
   function openAdd()   { setForm(EMPTY); setModal({ mode: 'add' }) }
   function openEdit(r) {
     setForm({
-      name:                  r.name,
-      commission_pkr_per_kg: r.commission_pkr_per_kg ?? '',
-      contact:               r.contact ?? '',
-      notes:                 r.notes   ?? '',
+      name:    r.name,
+      contact: r.contact ?? '',
+      notes:   r.notes   ?? '',
     })
     setModal({ mode: 'edit', row: r })
   }
@@ -63,11 +58,10 @@ export function SalesAgentsTab() {
     if (!form.name.trim()) return
     setSaving(true)
     const payload = {
-      name:                  form.name.trim(),
-      commission_pkr_per_kg: parseFloat(form.commission_pkr_per_kg) || 0,
-      contact:               form.contact.trim() || null,
-      notes:                 form.notes.trim()   || null,
-      updated_at:            new Date().toISOString(),
+      name:       form.name.trim(),
+      contact:    form.contact.trim() || null,
+      notes:      form.notes.trim()   || null,
+      updated_at: new Date().toISOString(),
     }
     const { error } = modal.mode === 'add'
       ? await supabase.from('sales_agents').insert(payload)
@@ -104,7 +98,6 @@ export function SalesAgentsTab() {
           <Thead>
             <tr>
               <Th>Name</Th>
-              <Th className="text-right">Commission (PKR / kg)</Th>
               <Th>Contact</Th>
               <Th>Actions</Th>
             </tr>
@@ -113,7 +106,6 @@ export function SalesAgentsTab() {
             {rows.map((r) => (
               <Tr key={r.id}>
                 <Td><span className="font-medium text-gray-900">{r.name}</span></Td>
-                <Td className="font-mono text-right text-gray-700">PKR {num(r.commission_pkr_per_kg)}</Td>
                 <Td>{r.contact || '—'}</Td>
                 <Td>
                   <div className="flex gap-1">
@@ -142,11 +134,6 @@ export function SalesAgentsTab() {
             <Field label="Name" required>
               <input className={INP} value={form.name} onChange={setF('name')}
                 placeholder="e.g. Ahmed Logistics" />
-            </Field>
-            <Field label="Commission (PKR / kg)">
-              <input type="number" step="0.01" min="0" className={INP}
-                value={form.commission_pkr_per_kg} onChange={setF('commission_pkr_per_kg')}
-                placeholder="0.00" />
             </Field>
             <Field label="Contact">
               <input className={INP} value={form.contact} onChange={setF('contact')}

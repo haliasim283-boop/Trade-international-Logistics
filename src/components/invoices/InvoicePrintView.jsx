@@ -39,10 +39,11 @@ function formatFullDate(dateStr) {
 // ── Print window HTML builder ────────────────────────────────────────────────
 
 function buildPrintHTML(invoice, clientName, clientCity) {
-  const hasClearing = Number(invoice.clearing_charges) > 0
-  const hasFormE    = Number(invoice.form_e_amount) > 0
-  const hasOther    = Number(invoice.other_charges) > 0
-  const hasAdj      = invoice.adjustment_amount != null && Math.abs(Number(invoice.adjustment_amount)) > 0
+  const hasClearing   = Number(invoice.clearing_charges) > 0
+  const hasFormE      = Number(invoice.form_e_amount) > 0
+  const hasOther      = Number(invoice.other_charges) > 0
+  const hasAmendment  = Number(invoice.amendment_charges) > 0
+  const hasAdj        = invoice.adjustment_amount != null && Math.abs(Number(invoice.adjustment_amount)) > 0
 
   const rows = []
 
@@ -74,6 +75,13 @@ function buildPrintHTML(invoice, clientName, clientCity) {
       <td class="desc">AIRLINE OTHER CHARGES + AWB FEE</td>
       <td></td><td></td>
       <td class="num mono bold">PKR ${fmt(invoice.other_charges)}</td>
+    </tr>`)
+
+  if (hasAmendment) rows.push(`
+    <tr>
+      <td class="desc">AMENDMENT CHARGES</td>
+      <td></td><td></td>
+      <td class="num mono bold">PKR ${fmt(invoice.amendment_charges)}</td>
     </tr>`)
 
   if (hasAdj) rows.push(`
@@ -215,10 +223,11 @@ function buildPrintHTML(invoice, clientName, clientCity) {
 // ── React preview component ───────────────────────────────────────────────────
 
 export function InvoicePrintView({ invoice, clientName, clientCity, onClose }) {
-  const hasClearing = Number(invoice.clearing_charges) > 0
-  const hasFormE    = Number(invoice.form_e_amount) > 0
-  const hasOther    = Number(invoice.other_charges) > 0
-  const hasAdj      = invoice.adjustment_amount != null && Math.abs(Number(invoice.adjustment_amount)) > 0
+  const hasClearing  = Number(invoice.clearing_charges) > 0
+  const hasFormE     = Number(invoice.form_e_amount) > 0
+  const hasOther     = Number(invoice.other_charges) > 0
+  const hasAmendment = Number(invoice.amendment_charges) > 0
+  const hasAdj       = invoice.adjustment_amount != null && Math.abs(Number(invoice.adjustment_amount)) > 0
 
   function handlePrint() {
     const w = window.open('', '_blank')
@@ -369,6 +378,15 @@ export function InvoicePrintView({ invoice, clientName, clientCity, onClose }) {
                   <td style={tdBase}>AIRLINE OTHER CHARGES + AWB FEE</td>
                   <td style={tdBase} /><td style={tdBase} />
                   <td style={tdBold}>PKR {fmt(invoice.other_charges)}</td>
+                </tr>
+              )}
+
+              {/* AMENDMENT CHARGES */}
+              {hasAmendment && (
+                <tr>
+                  <td style={tdBase}>AMENDMENT CHARGES</td>
+                  <td style={tdBase} /><td style={tdBase} />
+                  <td style={tdBold}>PKR {fmt(invoice.amendment_charges)}</td>
                 </tr>
               )}
 
