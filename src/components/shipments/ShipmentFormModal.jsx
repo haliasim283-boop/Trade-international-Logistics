@@ -3,7 +3,22 @@ import { FileText, UploadCloud, X } from 'lucide-react'
 import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
-import { supabase } from '../../lib/supabase'
+
+async function uploadToCloudinary(file) {
+  const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME
+  const preset    = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
+  if (!cloudName || !preset) throw new Error('Cloudinary not configured — add VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET to .env')
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('upload_preset', preset)
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/raw/upload`, { method: 'POST', body: fd })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error?.message ?? `HTTP ${res.status}`)
+  }
+  const data = await res.json()
+  return data.secure_url
+}
 
 const INP = 'w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent'
 const RO  = 'w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm text-gray-500 font-mono cursor-default'
@@ -74,7 +89,7 @@ export function ShipmentFormModal({
         idc_tax:            shipment.idc_tax ?? 0,
         awb_upload_charges:         shipment.awb_upload_charges ?? 0,
         awb_self_uploaded:          shipment.awb_self_uploaded ?? false,
-        other_charges_due_airline:  shipment.other_charges_due_airline ?? 0,
+        other_charges_due_airline:  Math.max(0, (shipment.other_charges_due_airline ?? 0) - parseFloat(airlines.find((a) => a.id === shipment.airline_id)?.bta_rate_per_awb ?? 0)),
         awb_fixed_fee:              shipment.awb_fixed_fee ?? 1000,
         form_e_usd_value:           shipment.form_e_usd_value ?? 0,
         form_e_pkr_rate:    shipment.form_e_pkr_rate ?? 0,
@@ -112,12 +127,15 @@ export function ShipmentFormModal({
   const freightAmount         = r2(cw * parseFloat(form.net_rate || 0))
   const formEAmountPkr        = r2(parseFloat(form.form_e_usd_value || 0) * parseFloat(form.form_e_pkr_rate || 0))
   const salesAgentCommission  = r2(cw * parseFloat(form.sales_agent_commission_per_kg || 0))
+  const selectedAirline       = airlines.find((a) => a.id === form.airline_id)
+  const btaPerAwb             = r2(parseFloat(selectedAirline?.bta_rate_per_awb ?? 0))
+  const otherChargesTotal     = r2(parseFloat(form.other_charges_due_airline || 0) + btaPerAwb)
   const totalReceivable       = r2(
     freightAmount
     + parseFloat(form.clearing_charges || 0)
     + parseFloat(form.idc_tax || 0)
     + parseFloat(form.awb_upload_charges || 0)
-    + parseFloat(form.other_charges_due_airline || 0)
+    + otherChargesTotal
     + parseFloat(form.awb_fixed_fee || 0)
     + formEAmountPkr
     + parseFloat(form.amendment_charges || 0)
@@ -188,28 +206,28 @@ export function ShipmentFormModal({
     setForm((p) => ({ ...p, clearing_agent_id: id, clearing_charges: cc, idc_tax: idc }))
   }
 
+  function handleSalesAgentChange(id) {
+    setForm((p) => ({
+      ...p,
+      sales_agent_id: id,
+      sales_agent_commission_per_kg: id ? p.sales_agent_commission_per_kg : 0,
+    }))
+  }
+
   // ── Save ─────────────────────────────────────────────────────────────────
   async function handleSubmit() {
-    // Upload any newly selected files to storage
+    // Upload any newly selected files to Cloudinary
     const uploadedUrls = []
-    if (newFiles.length > 0 && supabase) {
+    if (newFiles.length > 0) {
       setUploading(true)
-      const safeName = form.awb_number.trim().replace(/[^a-zA-Z0-9-]/g, '_')
       for (const file of newFiles) {
-        const safeFile = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-        const path = `${safeName}_${Date.now()}_${safeFile}`
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('shipment-documents')
-          .upload(path, file, { upsert: true, contentType: 'application/pdf' })
-        if (uploadError) {
+        try {
+          uploadedUrls.push(await uploadToCloudinary(file))
+        } catch (err) {
           setUploading(false)
-          alert(`Upload failed for "${file.name}": ${uploadError.message}`)
+          alert(`Upload failed for "${file.name}": ${err.message}`)
           return
         }
-        const { data: urlData } = supabase.storage
-          .from('shipment-documents')
-          .getPublicUrl(uploadData.path)
-        uploadedUrls.push(urlData.publicUrl)
       }
       setUploading(false)
     }
@@ -232,7 +250,7 @@ export function ShipmentFormModal({
       idc_tax:            parseFloat(form.idc_tax) || 0,
       awb_upload_charges:         parseFloat(form.awb_upload_charges) || 0,
       awb_self_uploaded:          form.awb_self_uploaded,
-      other_charges_due_airline:  parseFloat(form.other_charges_due_airline) || 0,
+      other_charges_due_airline:  otherChargesTotal,
       awb_fixed_fee:              parseFloat(form.awb_fixed_fee) || 0,
       form_e_usd_value:           parseFloat(form.form_e_usd_value) || 0,
       form_e_pkr_rate:    parseFloat(form.form_e_pkr_rate) || 0,
@@ -406,7 +424,7 @@ export function ShipmentFormModal({
                 value={form.awb_upload_charges} onChange={setF('awb_upload_charges')} />
             </Field>
             <Field label="Sales Agent">
-              <select name="sales_agent_id" className={INP} value={form.sales_agent_id} onChange={setF('sales_agent_id')}>
+              <select name="sales_agent_id" className={INP} value={form.sales_agent_id} onChange={(e) => handleSalesAgentChange(e.target.value)}>
                 <option value="">No SA (Sales Agent)</option>
                 {salesAgents.map((a) => (
                   <option key={a.id} value={a.id}>{a.name}</option>
@@ -415,9 +433,16 @@ export function ShipmentFormModal({
             </Field>
           </div>
           <div className="grid grid-cols-4 gap-3">
-            <Field label="Other Charges Due Airline (PKR)">
+            <Field label="Other Charges (PKR)">
               <input type="number" name="other_charges_due_airline" step="0.01" min="0" className={INP}
-                value={form.other_charges_due_airline} onChange={setF('other_charges_due_airline')} />
+                value={form.other_charges_due_airline} onChange={setF('other_charges_due_airline')}
+                placeholder="0" />
+            </Field>
+            <Field label="BTA per AWB (PKR)">
+              <input readOnly className={RO} value={pkr(btaPerAwb)} />
+            </Field>
+            <Field label="Other Charges Due Airline (PKR)">
+              <input readOnly className={RO} value={pkr(otherChargesTotal)} />
             </Field>
             <Field label="AWB Fixed Fee (PKR)">
               <input type="number" name="awb_fixed_fee" step="0.01" min="0" className={INP}
