@@ -92,7 +92,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
         clearing_charges:         String(round2(Number(shipment.clearing_charges || 0) + Number(shipment.idc_tax || 0))),
         form_e_usd_value:         shipment.form_e_usd_value  ?? '',
         form_e_pkr_rate:          shipment.form_e_pkr_rate   ?? '',
-        other_charges:            round2(Number(shipment.other_charges || 0) / Number(shipment.pkr_exchange_rate || 280)),
+        other_charges:            round2((Number(shipment.awb_upload_charges || 0) + Number(shipment.other_charges_due_airline || 0) + Number(shipment.awb_fixed_fee || 0)) / Number(shipment.pkr_exchange_rate || 280)),
         amendment_charges:        String(round2(Number(shipment.amendment_charges || 0))),
         adjustment_ref_invoice_no: '',
         adjustment_amount:        '',
@@ -114,7 +114,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
     setAwbStatus('loading')
     const { data } = await supabase
       .from('shipments')
-      .select('origin, destination, pieces, chargeable_weight, net_rate, pkr_exchange_rate, clearing_agent_id, clearing_charges, idc_tax, other_charges, amendment_charges, form_e_usd_value, form_e_pkr_rate, client_id, sales_agent_commission_per_kg')
+      .select('origin, destination, pieces, chargeable_weight, net_rate, pkr_exchange_rate, clearing_agent_id, clearing_charges, idc_tax, awb_upload_charges, other_charges_due_airline, awb_fixed_fee, amendment_charges, form_e_usd_value, form_e_pkr_rate, client_id, sales_agent_commission_per_kg')
       .ilike('awb_number', awb)
       .maybeSingle()
     if (!data) { setAwbStatus('not-found'); return }
@@ -131,7 +131,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
       client_id:         f.client_id         || data.client_id         || '',
       clearing_agent_id: f.clearing_agent_id || data.clearing_agent_id || '',
       clearing_charges:  f.clearing_charges  || String(round2(Number(data.clearing_charges || 0) + Number(data.idc_tax || 0))),
-      other_charges:     f.other_charges     || round2(Number(data.other_charges || 0) / Number(data.pkr_exchange_rate || 280)),
+      other_charges:     f.other_charges     || round2((Number(data.awb_upload_charges || 0) + Number(data.other_charges_due_airline || 0) + Number(data.awb_fixed_fee || 0)) / Number(data.pkr_exchange_rate || 280)),
       amendment_charges: f.amendment_charges || String(round2(Number(data.amendment_charges || 0))),
       form_e_usd_value:  f.form_e_usd_value  || data.form_e_usd_value || '',
       form_e_pkr_rate:   f.form_e_pkr_rate   || data.form_e_pkr_rate  || '',

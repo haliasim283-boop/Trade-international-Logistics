@@ -99,7 +99,7 @@ function buildPrintHTML(invoice, clientName, clientCity) {
   <meta charset="UTF-8">
   <title>Invoice ${invoice.invoice_number}</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #111; background: white; }
     @page { size: A4; margin: 10mm; }
 

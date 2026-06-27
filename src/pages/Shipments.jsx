@@ -58,7 +58,7 @@ function exportCSV(rows) {
     ['Net Rate',        (r) => r.net_rate],
     ['Clearing Chgs',   (r) => r.clearing_charges],
     ['IDC Tax',         (r) => r.idc_tax],
-    ['Other Charges',   (r) => r.other_charges],
+    ['Other Charges',   (r) => r.awb_upload_charges],
     ['Form E Amt',      (r) => r.form_e_amount_pkr],
     ['Amendment',       (r) => r.amendment_charges],
     ['CASS Rate',       (r) => r.cass_airline_rate],
@@ -169,7 +169,7 @@ export default function Shipments() {
     if (filterAirline && s.airline_id !== filterAirline) return false
     if (filterClient  && s.client_id  !== filterClient)  return false
     if (filterStatus  && s.status     !== filterStatus)  return false
-    if (filterOrigin  && s.origin     !== filterOrigin.toUpperCase()) return false
+    if (filterOrigin  && s.origin     !== filterOrigin) return false
     if (filterFrom    && s.flight_date < filterFrom) return false
     if (filterTo      && s.flight_date > filterTo)   return false
     return true
@@ -263,7 +263,7 @@ export default function Shipments() {
   // ── Filter helpers ───────────────────────────────────────────────────────
 
   const hasFilters = search || filterAirline || filterClient || filterStatus || filterOrigin || filterFrom || filterTo
-  const INP_F = 'border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent bg-white'
+  const INP_F = 'shrink-0 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent bg-white'
 
   function clearFilters() {
     setSearch(''); setFilterAirline(''); setFilterClient('')
@@ -283,6 +283,9 @@ export default function Shipments() {
             <p className="text-sm text-gray-500 mt-0.5">All shipments — the source of truth for all reports.</p>
           </div>
           <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => exportCSV(filtered)}>
+              <Download className="w-4 h-4" />Export CSV
+            </Button>
             <Button variant="secondary" onClick={() => setShowImport(true)}>
               <Upload className="w-4 h-4" />Import Excel
             </Button>
@@ -294,8 +297,8 @@ export default function Shipments() {
 
         {/* Filters */}
         <Card>
-          <CardBody className="py-3">
-            <div className="flex flex-wrap gap-2 items-center">
+          <CardBody className="py-3 overflow-x-auto">
+            <div className="flex flex-nowrap gap-2 items-center min-w-0">
               <input
                 name="search"
                 className={INP_F}
@@ -332,9 +335,13 @@ export default function Shipments() {
                 {STATUSES.map((s) => <option key={s}>{s}</option>)}
               </select>
 
-              <input name="filter_origin" className={INP_F} style={{ width: 70 }} value={filterOrigin}
-                onChange={(e) => setFilterOrigin(e.target.value)}
-                placeholder="ORG" maxLength={3} title="Filter by origin" />
+              <select name="filter_origin" className={INP_F} value={filterOrigin}
+                onChange={(e) => setFilterOrigin(e.target.value)} title="Filter by origin">
+                <option value="">All origins</option>
+                {['PEW','ISB','MUX','SKT','LHE','KHI'].map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
 
               {hasFilters && (
                 <button onClick={clearFilters} className="text-xs text-accent hover:underline whitespace-nowrap">
@@ -342,11 +349,6 @@ export default function Shipments() {
                 </button>
               )}
 
-              <div className="ml-auto flex gap-2 items-center">
-                <Button variant="ghost" size="sm" onClick={() => exportCSV(filtered)}>
-                  <Download className="w-4 h-4" />Export CSV
-                </Button>
-              </div>
             </div>
           </CardBody>
         </Card>

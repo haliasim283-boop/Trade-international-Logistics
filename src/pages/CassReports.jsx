@@ -79,7 +79,7 @@ function defaultPeriodKey() {
 function calcRow(s, whtRate, isPia) {
   const pkrRate    = Number(s.pkr_exchange_rate || 1)
   const pwc        = r2(Number(s.chargeable_weight || 0) * Number(s.cass_airline_rate || 0) * pkrRate)
-  const oc_airline = r2(Number(s.amendment_charges || 0))
+  const oc_airline = r2(Number(s.other_charges_due_airline || 0))
   let tax_withheld = 0
   if (isPia) {
     const freight_amount = r2(Number(s.chargeable_weight || 0) * Number(s.net_rate || 0))
@@ -191,7 +191,7 @@ export default function CassReports() {
     // 2. Shipments for this airline + period
     const { data: sData, error: sErr } = await supabase
       .from('shipments')
-      .select('id,flight_date,awb_number,origin,destination,pieces,chargeable_weight,other_charges,amendment_charges,cass_airline_rate,pkr_exchange_rate,net_rate,clients(name)')
+      .select('id,flight_date,awb_number,origin,destination,pieces,chargeable_weight,awb_upload_charges,other_charges_due_airline,amendment_charges,cass_airline_rate,pkr_exchange_rate,net_rate,clients(name)')
       .eq('airline_id', selectedAirlineId)
       .gte('flight_date', period.start)
       .lte('flight_date', period.end)

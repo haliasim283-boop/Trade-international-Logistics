@@ -59,7 +59,7 @@ function buildEntries(shipments, payments, opening) {
       weight:      Number(s.chargeable_weight || 0),
       net_rate:    Number(s.net_rate || 0),
       clearing:    Number(s.clearing_charges || 0) + Number(s.idc_tax || 0),
-      other:       Number(s.other_charges || 0) + Number(s.amendment_charges || 0),
+      other:       Number(s.other_charges_due_airline || 0) + Number(s.awb_upload_charges || 0) + Number(s.airlines?.bta_rate_per_awb || 0) + Number(s.amendment_charges || 0),
       form_e:      Number(s.form_e_amount_pkr || 0),
       receivable:  Number(s.total_receivable || 0),
       received:    0,
@@ -215,7 +215,7 @@ export default function Ledgers() {
     ] = await Promise.all([
       supabase
         .from('shipments')
-        .select('id, flight_date, awb_number, origin, destination, pieces, chargeable_weight, net_rate, clearing_charges, idc_tax, other_charges, amendment_charges, form_e_amount_pkr, total_receivable')
+        .select('id, flight_date, awb_number, origin, destination, pieces, chargeable_weight, net_rate, clearing_charges, idc_tax, awb_upload_charges, other_charges_due_airline, amendment_charges, form_e_amount_pkr, total_receivable, airlines(bta_rate_per_awb)')
         .eq('client_id', clientId)
         .order('flight_date', { ascending: true })
         .order('created_at',  { ascending: true }),

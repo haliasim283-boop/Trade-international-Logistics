@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
+import { FileText, UploadCloud, X } from 'lucide-react'
 import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
+import { supabase } from '../../lib/supabase'
 
 const INP = 'w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent'
 const RO  = 'w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm text-gray-500 font-mono cursor-default'
@@ -40,8 +42,9 @@ const EMPTY = {
   awb_number: '', airline_id: '', client_id: '',
   origin: '', destination: '', pieces: 1,
   chargeable_weight: '', net_rate: '', pkr_exchange_rate: 280,
-  clearing_charges: 0, idc_tax: 0, other_charges: 0,
+  clearing_charges: 0, idc_tax: 0, awb_upload_charges: 0,
   awb_self_uploaded: false,
+  other_charges_due_airline: 0, awb_fixed_fee: 1000,
   form_e_usd_value: 0, form_e_pkr_rate: 0, form_e_supplier_id: '',
   amendment_charges: 0, cass_airline_rate: '',
   clearing_agent_id: '', sales_agent_id: '', sales_agent_commission_per_kg: 0,
@@ -69,9 +72,11 @@ export function ShipmentFormModal({
         pkr_exchange_rate:  shipment.pkr_exchange_rate ?? 280,
         clearing_charges:   shipment.clearing_charges ?? 0,
         idc_tax:            shipment.idc_tax ?? 0,
-        other_charges:      shipment.other_charges ?? 0,
-        awb_self_uploaded:  shipment.awb_self_uploaded ?? false,
-        form_e_usd_value:   shipment.form_e_usd_value ?? 0,
+        awb_upload_charges:         shipment.awb_upload_charges ?? 0,
+        awb_self_uploaded:          shipment.awb_self_uploaded ?? false,
+        other_charges_due_airline:  shipment.other_charges_due_airline ?? 0,
+        awb_fixed_fee:              shipment.awb_fixed_fee ?? 1000,
+        form_e_usd_value:           shipment.form_e_usd_value ?? 0,
         form_e_pkr_rate:    shipment.form_e_pkr_rate ?? 0,
         form_e_supplier_id: shipment.form_e_supplier_id ?? '',
         amendment_charges:  shipment.amendment_charges ?? 0,
@@ -86,6 +91,21 @@ export function ShipmentFormModal({
     return EMPTY
   })
 
+  const [existingUrls, setExistingUrls] = useState(() =>
+    mode === 'edit' ? (shipment?.document_urls ?? []) : []
+  )
+  const [newFiles, setNewFiles]     = useState([])
+  const [uploading, setUploading]   = useState(false)
+  const fileInputRef = useRef(null)
+
+  function handleFileSelect(e) {
+    const picked = Array.from(e.target.files ?? [])
+    setNewFiles((prev) => [...prev, ...picked])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+  function removeExisting(url) { setExistingUrls((prev) => prev.filter((u) => u !== url)) }
+  function removeNew(idx)      { setNewFiles((prev) => prev.filter((_, i) => i !== idx)) }
+
   // ── Computed (never stored; the DB computes GENERATED columns) ──────────
   const pkrRate               = parseFloat(form.pkr_exchange_rate || 1)
   const cw                    = parseFloat(form.chargeable_weight || 0)
@@ -96,7 +116,9 @@ export function ShipmentFormModal({
     freightAmount
     + parseFloat(form.clearing_charges || 0)
     + parseFloat(form.idc_tax || 0)
-    + parseFloat(form.other_charges || 0)
+    + parseFloat(form.awb_upload_charges || 0)
+    + parseFloat(form.other_charges_due_airline || 0)
+    + parseFloat(form.awb_fixed_fee || 0)
     + formEAmountPkr
     + parseFloat(form.amendment_charges || 0)
     + salesAgentCommission
@@ -115,7 +137,7 @@ export function ShipmentFormModal({
     setForm((p) => ({
       ...p,
       airline_id: id,
-      other_charges: otherCharges,
+      awb_upload_charges: otherCharges,
     }))
   }
 
@@ -145,7 +167,7 @@ export function ShipmentFormModal({
     const otherCharges = checked
       ? r2(Number(airline?.other_charges_self_upload ?? 0) * rate)
       : r2(Number(airline?.awb_airline_upload_charges ?? 0) * rate)
-    setForm((p) => ({ ...p, awb_self_uploaded: checked, other_charges: otherCharges }))
+    setForm((p) => ({ ...p, awb_self_uploaded: checked, awb_upload_charges: otherCharges }))
   }
 
   function handleExchangeRateChange(val) {
@@ -155,8 +177,8 @@ export function ShipmentFormModal({
       ? (form.awb_self_uploaded
           ? r2(Number(airline.other_charges_self_upload ?? 0) * rate)
           : r2(Number(airline.awb_airline_upload_charges ?? 0) * rate))
-      : form.other_charges
-    setForm((p) => ({ ...p, pkr_exchange_rate: val, other_charges: otherCharges }))
+      : form.awb_upload_charges
+    setForm((p) => ({ ...p, pkr_exchange_rate: val, awb_upload_charges: otherCharges }))
   }
 
   function handleAgentChange(id) {
@@ -167,7 +189,32 @@ export function ShipmentFormModal({
   }
 
   // ── Save ─────────────────────────────────────────────────────────────────
-  function handleSubmit() {
+  async function handleSubmit() {
+    // Upload any newly selected files to storage
+    const uploadedUrls = []
+    if (newFiles.length > 0 && supabase) {
+      setUploading(true)
+      const safeName = form.awb_number.trim().replace(/[^a-zA-Z0-9-]/g, '_')
+      for (const file of newFiles) {
+        const safeFile = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+        const path = `${safeName}_${Date.now()}_${safeFile}`
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('shipment-documents')
+          .upload(path, file, { upsert: true, contentType: 'application/pdf' })
+        if (uploadError) {
+          setUploading(false)
+          alert(`Upload failed for "${file.name}": ${uploadError.message}`)
+          return
+        }
+        const { data: urlData } = supabase.storage
+          .from('shipment-documents')
+          .getPublicUrl(uploadData.path)
+        uploadedUrls.push(urlData.publicUrl)
+      }
+      setUploading(false)
+    }
+    const document_urls = [...existingUrls, ...uploadedUrls]
+
     // IMPORTANT: exclude GENERATED columns (freight_amount, form_e_amount_pkr,
     // total_receivable, cass_freight_total) — the DB computes them automatically.
     const payload = {
@@ -183,9 +230,11 @@ export function ShipmentFormModal({
       pkr_exchange_rate:  parseFloat(form.pkr_exchange_rate) || 1,
       clearing_charges:   parseFloat(form.clearing_charges) || 0,
       idc_tax:            parseFloat(form.idc_tax) || 0,
-      other_charges:      parseFloat(form.other_charges) || 0,
-      awb_self_uploaded:  form.awb_self_uploaded,
-      form_e_usd_value:   parseFloat(form.form_e_usd_value) || 0,
+      awb_upload_charges:         parseFloat(form.awb_upload_charges) || 0,
+      awb_self_uploaded:          form.awb_self_uploaded,
+      other_charges_due_airline:  parseFloat(form.other_charges_due_airline) || 0,
+      awb_fixed_fee:              parseFloat(form.awb_fixed_fee) || 0,
+      form_e_usd_value:           parseFloat(form.form_e_usd_value) || 0,
       form_e_pkr_rate:    parseFloat(form.form_e_pkr_rate) || 0,
       form_e_supplier_id: form.form_e_supplier_id || null,
       amendment_charges:  parseFloat(form.amendment_charges) || 0,
@@ -195,12 +244,13 @@ export function ShipmentFormModal({
       sales_agent_commission_per_kg: parseFloat(form.sales_agent_commission_per_kg) || 0,
       status:             form.status,
       notes:              form.notes.trim() || null,
+      document_urls,
       updated_at:         new Date().toISOString(),
     }
     onSave(payload)
   }
 
-  const canSave = !saving
+  const canSave = !uploading && !saving
     && form.flight_date
     && form.awb_number.trim()
     && form.airline_id
@@ -352,8 +402,8 @@ export function ShipmentFormModal({
               </span>
             </label>
             <Field label="AWB Upload Charges (PKR)">
-              <input type="number" name="other_charges" step="0.01" min="0" className={INP}
-                value={form.other_charges} onChange={setF('other_charges')} />
+              <input type="number" name="awb_upload_charges" step="0.01" min="0" className={INP}
+                value={form.awb_upload_charges} onChange={setF('awb_upload_charges')} />
             </Field>
             <Field label="Sales Agent">
               <select name="sales_agent_id" className={INP} value={form.sales_agent_id} onChange={setF('sales_agent_id')}>
@@ -362,6 +412,16 @@ export function ShipmentFormModal({
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
               </select>
+            </Field>
+          </div>
+          <div className="grid grid-cols-4 gap-3">
+            <Field label="Other Charges Due Airline (PKR)">
+              <input type="number" name="other_charges_due_airline" step="0.01" min="0" className={INP}
+                value={form.other_charges_due_airline} onChange={setF('other_charges_due_airline')} />
+            </Field>
+            <Field label="AWB Fixed Fee (PKR)">
+              <input type="number" name="awb_fixed_fee" step="0.01" min="0" className={INP}
+                value={form.awb_fixed_fee} onChange={setF('awb_fixed_fee')} />
             </Field>
           </div>
           {form.sales_agent_id && (
@@ -401,6 +461,54 @@ export function ShipmentFormModal({
           </div>
         </Section>
 
+        {/* ── 5. Shipment Documents ── */}
+        <Section title="Shipment Documents">
+          {/* Already-saved documents */}
+          {existingUrls.map((url, i) => (
+            <div key={url} className="flex items-center gap-3 px-3 py-2.5 bg-blue-50 border border-blue-200 rounded-md">
+              <FileText className="w-4 h-4 text-blue-600 flex-shrink-0" />
+              <a
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-blue-700 hover:text-blue-900 underline flex-1 truncate"
+              >
+                Document {i + 1}
+              </a>
+              <button type="button" onClick={() => removeExisting(url)}
+                className="text-gray-400 hover:text-danger flex-shrink-0" title="Remove">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+
+          {/* Newly selected files (not yet uploaded) */}
+          {newFiles.map((file, i) => (
+            <div key={i} className="flex items-center gap-3 px-3 py-2.5 bg-green-50 border border-green-200 rounded-md">
+              <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
+              <span className="text-sm text-green-800 flex-1 truncate">{file.name}</span>
+              <button type="button" onClick={() => removeNew(i)}
+                className="text-gray-400 hover:text-danger flex-shrink-0" title="Remove">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+
+          {/* Drop zone / add button */}
+          <label className="flex items-center gap-3 px-4 py-3 border-2 border-dashed border-gray-300 rounded-md cursor-pointer hover:border-accent hover:bg-blue-50 transition-colors">
+            <UploadCloud className="w-5 h-5 text-gray-400" />
+            <span className="text-sm text-gray-500">Click to attach PDF(s) — you can add multiple</span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,application/pdf"
+              multiple
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+          </label>
+        </Section>
+
         {/* ── Total banner ── */}
         <div className="rounded-lg bg-navy px-5 py-4 flex items-center justify-between">
           <span className="text-sm font-semibold text-white uppercase tracking-wide">
@@ -420,8 +528,8 @@ export function ShipmentFormModal({
         <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={handleSubmit} disabled={!canSave}>
-            {saving && <Spinner size="sm" />}
-            {mode === 'add' ? 'Add Shipment' : 'Save Changes'}
+            {(saving || uploading) && <Spinner size="sm" />}
+            {uploading ? 'Uploading…' : mode === 'add' ? 'Add Shipment' : 'Save Changes'}
           </Button>
         </div>
       </div>

@@ -21,8 +21,7 @@ function Field({ label, required, children }) {
 }
 
 const EMPTY = {
-  name: '', contact_person: '', phone: '',
-  default_pkr_rate: 13.00, payment_terms: '', notes: '',
+  name: '', contact_person: '', phone: '', notes: '',
 }
 
 export function FormESuppliersTab() {
@@ -51,8 +50,7 @@ export function FormESuppliersTab() {
   function openEdit(r) {
     setForm({
       name: r.name, contact_person: r.contact_person ?? '',
-      phone: r.phone ?? '', default_pkr_rate: r.default_pkr_rate,
-      payment_terms: r.payment_terms ?? '', notes: r.notes ?? '',
+      phone: r.phone ?? '', notes: r.notes ?? '',
     })
     setModal({ mode: 'edit', row: r })
   }
@@ -64,7 +62,6 @@ export function FormESuppliersTab() {
     setSaving(true)
     const payload = {
       ...form,
-      default_pkr_rate: parseFloat(form.default_pkr_rate) || 0,
       updated_at: new Date().toISOString(),
     }
     const { error } = modal.mode === 'add'
@@ -99,9 +96,7 @@ export function FormESuppliersTab() {
         <Table>
           <Thead>
             <tr>
-              <Th>Supplier Name</Th><Th>Contact Person</Th><Th>Phone</Th>
-              <Th className="text-right">Default PKR Rate / USD</Th>
-              <Th>Payment Terms</Th><Th>Actions</Th>
+              <Th>Supplier Name</Th><Th>Contact Person</Th><Th>Phone</Th><Th>Actions</Th>
             </tr>
           </Thead>
           <Tbody>
@@ -110,10 +105,6 @@ export function FormESuppliersTab() {
                 <Td><span className="font-medium text-gray-900">{r.name}</span></Td>
                 <Td>{r.contact_person || '—'}</Td>
                 <Td>{r.phone || '—'}</Td>
-                <Td className="font-mono text-right text-gray-700">
-                  PKR {Number(r.default_pkr_rate).toFixed(2)}
-                </Td>
-                <Td>{r.payment_terms || '—'}</Td>
                 <Td>
                   <div className="flex gap-1">
                     <button title="Edit" onClick={() => openEdit(r)}
@@ -149,17 +140,6 @@ export function FormESuppliersTab() {
               </Field>
               <Field label="Phone">
                 <input className={INP} value={form.phone} onChange={setF('phone')} />
-              </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Default PKR Rate per USD">
-                <input type="number" step="0.01" min="0" className={INP}
-                  value={form.default_pkr_rate}
-                  onChange={(e) => setForm((p) => ({ ...p, default_pkr_rate: e.target.value }))} />
-              </Field>
-              <Field label="Payment Terms">
-                <input className={INP} value={form.payment_terms} onChange={setF('payment_terms')}
-                  placeholder="e.g. Net 30" />
               </Field>
             </div>
             <Field label="Notes">
