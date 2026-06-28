@@ -8,6 +8,7 @@ import { Spinner } from '../components/ui/Spinner'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { PaymentModal } from '../components/ledger/PaymentModal'
 import { LedgerPrintView } from '../components/ledger/LedgerPrintView'
+import { useAuth } from '../contexts/AuthContext'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -337,6 +338,75 @@ export default function Ledgers() {
   // ── Style helpers ─────────────────────────────────────────────────────────
 
   const INP_F = 'border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent bg-white'
+
+  const { role } = useAuth()
+  const isDataEntry = role === 'Data Entry'
+
+  // ── Data Entry simplified view ────────────────────────────────────────────
+
+  if (isDataEntry) {
+    return (
+      <>
+        <div className="p-6 space-y-5">
+          <div>
+            <h1 className="text-2xl font-bold text-navy tracking-tight">Record Client Payment</h1>
+            <p className="text-sm text-gray-500 mt-0.5">Select a client and record a payment.</p>
+          </div>
+
+          <Card>
+            <CardBody className="py-4">
+              <div className="flex flex-wrap gap-3 items-center">
+                <select
+                  className={INP_F}
+                  style={{ minWidth: 260 }}
+                  value={selClientId}
+                  onChange={(e) => setSelClientId(e.target.value)}
+                >
+                  <option value="">Select a client…</option>
+                  {allClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+
+                {selClientId && (
+                  <Button size="sm" variant="success" onClick={() => setPaymentModal(true)}>
+                    <Plus className="w-4 h-4" />Record Payment
+                  </Button>
+                )}
+              </div>
+            </CardBody>
+          </Card>
+
+          {selClientId && (
+            <div className="relative rounded-xl overflow-hidden">
+              <div className="blur-sm pointer-events-none select-none opacity-60">
+                <div className="bg-gray-100 rounded-lg h-64 flex items-center justify-center">
+                  <div className="space-y-3 w-full px-8">
+                    {[...Array(5)].map((_, i) => (
+                      <div key={i} className="h-4 bg-gray-300 rounded w-full" />
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="bg-white/90 rounded-xl px-8 py-5 text-center shadow-lg border border-gray-200">
+                  <p className="text-sm font-semibold text-navy">Ledger details are restricted</p>
+                  <p className="text-xs text-gray-500 mt-1">Use the button above to record a payment.</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {paymentModal && selClientId && (
+          <PaymentModal
+            clientId={selClientId}
+            onSave={handleAddPayment}
+            onClose={() => setPaymentModal(false)}
+            saving={saving}
+          />
+        )}
+      </>
+    )
+  }
 
   // ── Render ────────────────────────────────────────────────────────────────
 

@@ -34,20 +34,20 @@ export const NAV_ITEMS = [
 
 // Roles that can access each route (empty = all authenticated)
 export const ROUTE_ACCESS = {
-  '/':          ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
-  '/shipments': ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
-  '/parties':   ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
-  '/invoices':  ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
-  '/ledgers':   ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
-  '/cass':      ['Admin','Manager','Report Viewer'],
-  '/form-e':    ['Admin','Manager','Report Viewer'],
-  '/clearing':     ['Admin','Manager','Report Viewer'],
+  '/':             ['Admin','Manager','Report Viewer','Invoice Agent'],
+  '/shipments':    ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
+  '/parties':      ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
+  '/invoices':     ['Admin','Manager','Report Viewer','Invoice Agent'],
+  '/ledgers':      ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
+  '/cass':         ['Admin','Manager','Report Viewer'],
+  '/form-e':       ['Admin','Manager','Report Viewer'],
+  '/clearing':     ['Admin','Manager','Data Entry','Report Viewer'],
   '/sales-agents': ['Admin','Manager','Report Viewer'],
-  '/expenses':     ['Admin','Manager','Report Viewer'],
-  '/income':    ['Admin','Manager','Report Viewer'],
-  '/pnl':       ['Admin','Manager','Report Viewer'],
-  '/settings':  ['Admin','Manager'],
-  '/users':     ['Admin'],
+  '/expenses':     ['Admin','Manager','Data Entry','Report Viewer'],
+  '/income':       ['Admin','Manager','Report Viewer'],
+  '/pnl':          ['Admin','Manager','Report Viewer'],
+  '/settings':     ['Admin','Manager'],
+  '/users':        ['Admin'],
 }
 
 export const ROLE_COLORS = {

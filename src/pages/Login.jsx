@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Plane, AlertCircle } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabase'
 import { Button } from '../components/ui/Button'
 
 export default function Login() {
   const { signIn } = useAuth()
   const navigate   = useNavigate()
   const location   = useLocation()
-  const from       = location.state?.from?.pathname ?? '/'
+  const from       = location.state?.from?.pathname ?? null
 
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
@@ -22,12 +23,25 @@ export default function Login() {
 
     const { error: err } = await signIn(email, password)
 
-    setLoading(false)
     if (err) {
+      setLoading(false)
       setError(err.message ?? 'Login failed. Check your credentials.')
-    } else {
-      navigate(from, { replace: true })
+      return
     }
+
+    // Fetch the role from the profile to decide where to land
+    const { data: { user } } = await supabase.auth.getUser()
+    let role = null
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles').select('role').eq('id', user.id).single()
+      role = profile?.role ?? null
+    }
+
+    setLoading(false)
+    const defaultDest = role === 'Data Entry' ? '/shipments' : '/'
+    const safeTo = from && from !== '/' && from !== '/unauthorized' ? from : defaultDest
+    navigate(safeTo, { replace: true })
   }
 
   return (

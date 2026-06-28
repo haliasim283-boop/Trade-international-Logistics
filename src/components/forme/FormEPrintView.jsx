@@ -17,8 +17,8 @@ export function printFormEReport({ supplier, shipments, payments, summary, dateF
       <td class="mono">${s.awb_number}</td>
       <td>${s.clients?.name ?? '—'}</td>
       <td class="num">$ ${fmt(s.form_e_usd_value)}</td>
-      <td class="num">${fmt(s.form_e_pkr_rate)}</td>
-      <td class="num bold">PKR ${fmt(s.form_e_amount_pkr)}</td>
+      <td class="num">${fmt(s.form_e_pkr_rate_payable)}</td>
+      <td class="num bold">PKR ${fmt(Number(s.form_e_usd_value || 0) * Number(s.form_e_pkr_rate_payable || 0))}</td>
     </tr>`).join('')
 
   const payRows = payments.map((p) => `
@@ -118,7 +118,7 @@ export function printFormEReport({ supplier, shipments, payments, summary, dateF
         <th>AWB No.</th>
         <th>Client</th>
         <th class="num">USD Value</th>
-        <th class="num">PKR Rate</th>
+        <th class="num">PKR Rate Payable</th>
         <th class="num">Form E Amount (PKR)</th>
       </tr>
     </thead>
@@ -133,8 +133,7 @@ export function printFormEReport({ supplier, shipments, payments, summary, dateF
       <tr>
         <td colspan="3" class="bold">PERIOD TOTALS</td>
         <td class="num">$ ${fmt(summary.totalUSD)}</td>
-        <td></td>
-        <td class="num">PKR ${fmt(summary.totalPKR)}</td>
+        <td class="num">PKR ${fmt(shipments.reduce((acc, s) => acc + Number(s.form_e_usd_value || 0) * Number(s.form_e_pkr_rate_payable || 0), 0))}</td>
       </tr>
     </tfoot>` : ''}
   </table>

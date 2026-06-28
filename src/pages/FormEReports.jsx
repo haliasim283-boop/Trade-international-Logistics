@@ -34,14 +34,14 @@ function defaultRange() {
 }
 
 function exportCSV(shipments, supplier, dateFrom, dateTo) {
-  const header = ['Date','AWB No.','Client','USD Value','PKR Rate','Form E Amount (PKR)']
+  const header = ['Date','AWB No.','Client','USD Value','PKR Rate Payable','Form E Amount (PKR)']
   const lines = shipments.map((s) => [
     s.flight_date,
     s.awb_number,
     s.clients?.name ?? '',
     s.form_e_usd_value,
-    s.form_e_pkr_rate,
-    s.form_e_amount_pkr,
+    s.form_e_pkr_rate_payable,
+    Number(s.form_e_usd_value || 0) * Number(s.form_e_pkr_rate_payable || 0),
   ].map((v) => `"${v ?? ''}"`).join(','))
   const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
   const url  = URL.createObjectURL(blob)
@@ -101,7 +101,7 @@ export default function FormEReports() {
     const [{ data: sData, error: sErr }, { data: pData }] = await Promise.all([
       // Shipments with form_e data for this supplier + period
       supabase.from('shipments')
-        .select('id,flight_date,awb_number,origin,destination,form_e_usd_value,form_e_pkr_rate,form_e_amount_pkr,clients(name)')
+        .select('id,flight_date,awb_number,origin,destination,form_e_usd_value,form_e_pkr_rate,form_e_pkr_rate_payable,form_e_amount_pkr,clients(name)')
         .eq('form_e_supplier_id', selectedSupplierId)
         .gt('form_e_usd_value', 0)
         .gte('flight_date', dateFrom)
@@ -126,7 +126,7 @@ export default function FormEReports() {
   // ── Summary numbers ─────────────────────────────────────────────────────────
   const summary = useMemo(() => {
     const totalUSD  = r2(shipments.reduce((s, r) => s + Number(r.form_e_usd_value || 0), 0))
-    const totalPKR  = r2(shipments.reduce((s, r) => s + Number(r.form_e_amount_pkr || 0), 0))
+    const totalPKR  = r2(shipments.reduce((s, r) => s + Number(r.form_e_usd_value || 0) * Number(r.form_e_pkr_rate_payable || 0), 0))
     const totalPaid = r2(payments.reduce((s, p) => s + Number(p.amount || 0), 0))
     const balanceDue = r2(totalPKR - totalPaid)
     return { totalUSD, totalPKR, totalPaid, balanceDue }
@@ -270,14 +270,15 @@ export default function FormEReports() {
                     <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide">AWB No.</th>
                     <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide">Client</th>
                     <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">USD Value</th>
-                    <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">PKR Rate</th>
+                    <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">PKR Rate Receivable</th>
+                    <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">PKR Rate Payable</th>
                     <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Form E Amount (PKR)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {shipments.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="text-center py-12 text-gray-400 text-sm">
+                      <td colSpan={7} className="text-center py-12 text-gray-400 text-sm">
                         No Form E shipments for {supplier?.name} in this period.
                       </td>
                     </tr>
@@ -293,8 +294,11 @@ export default function FormEReports() {
                         <td className="px-4 py-2.5 text-right font-mono text-gray-600">
                           {fmt(s.form_e_pkr_rate)}
                         </td>
+                        <td className="px-4 py-2.5 text-right font-mono text-gray-600">
+                          {fmt(s.form_e_pkr_rate_payable)}
+                        </td>
                         <td className="px-4 py-2.5 text-right font-mono font-semibold text-navy">
-                          PKR {fmt(s.form_e_amount_pkr)}
+                          PKR {fmt(Number(s.form_e_usd_value || 0) * Number(s.form_e_pkr_rate_payable || 0))}
                         </td>
                       </tr>
                     ))
@@ -309,6 +313,7 @@ export default function FormEReports() {
                       <td className="px-4 py-2.5 text-right font-mono font-bold text-xs">
                         $ {fmt(summary.totalUSD)}
                       </td>
+                      <td></td>
                       <td></td>
                       <td className="px-4 py-2.5 text-right font-mono font-bold">
                         PKR {fmt(summary.totalPKR)}

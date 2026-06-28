@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { AppShell } from './components/layout/AppShell'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { ROUTE_ACCESS } from './config/nav'
+import { useAuth } from './contexts/AuthContext'
 
 import Login          from './pages/Login'
 import Unauthorized   from './pages/Unauthorized'
@@ -28,6 +29,11 @@ function Shell({ children, path }) {
   )
 }
 
+function CatchAll() {
+  const { role } = useAuth()
+  return <Navigate to={role === 'Data Entry' ? '/shipments' : '/'} replace />
+}
+
 export default function App() {
   return (
     <Routes>
@@ -52,7 +58,7 @@ export default function App() {
       <Route path="/users"      element={<Shell path="/users"><UserManagement /></Shell>} />
 
       {/* Catch-all */}
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<CatchAll />} />
     </Routes>
   )
 }

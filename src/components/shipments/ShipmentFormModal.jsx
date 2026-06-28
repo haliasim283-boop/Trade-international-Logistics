@@ -3,6 +3,7 @@ import { FileText, UploadCloud, X } from 'lucide-react'
 import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
+import { useAuth } from '../../contexts/AuthContext'
 
 async function uploadToCloudinary(file) {
   const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME
@@ -18,6 +19,14 @@ async function uploadToCloudinary(file) {
   }
   const data = await res.json()
   return data.secure_url
+}
+
+function formatAWB(raw) {
+  // Keep only digits and letters, strip existing hyphens, then insert at positions 3 and 7
+  const clean = raw.replace(/-/g, '').slice(0, 11)
+  if (clean.length <= 3) return clean
+  if (clean.length <= 7) return `${clean.slice(0, 3)}-${clean.slice(3)}`
+  return `${clean.slice(0, 3)}-${clean.slice(3, 7)}-${clean.slice(7)}`
 }
 
 const INP = 'w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent'
@@ -50,7 +59,7 @@ function pkr(n) {
   return 'PKR ' + r2(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-const STATUSES = ['PNDNG', 'AP-BLZ', 'BKD', 'CNCLD', 'NO SHOW', 'OFFLOADED', 'SHPD']
+const STATUSES = ['PNDNG', 'AP-BLZ', 'BKD', 'CNCLD', 'NO SHOW', 'OFFLOADED', 'SHPD', 'EMAILED']
 
 const EMPTY = {
   flight_date: new Date().toISOString().slice(0, 10),
@@ -60,7 +69,7 @@ const EMPTY = {
   clearing_charges: 0, idc_tax: 0, awb_upload_charges: 0,
   awb_self_uploaded: false,
   other_charges_due_airline: 0, awb_fixed_fee: 1000,
-  form_e_usd_value: 0, form_e_pkr_rate: 0, form_e_supplier_id: '',
+  form_e_usd_value: 0, form_e_pkr_rate: 0, form_e_pkr_rate_payable: 0, form_e_supplier_id: '',
   amendment_charges: 0, cass_airline_rate: '',
   clearing_agent_id: '', sales_agent_id: '', sales_agent_commission_per_kg: 0,
   status: 'PNDNG', notes: '',
@@ -69,7 +78,7 @@ const EMPTY = {
 export function ShipmentFormModal({
   mode, shipment,
   airlines, clients, clearingAgents, formESuppliers, salesAgents = [],
-  idcTaxRate,
+  idcTaxRate, fixedUsdRate = 0,
   onSave, onClose, saving,
 }) {
   const [form, setForm] = useState(() => {
@@ -92,7 +101,8 @@ export function ShipmentFormModal({
         other_charges_due_airline:  Math.max(0, (shipment.other_charges_due_airline ?? 0) - parseFloat(airlines.find((a) => a.id === shipment.airline_id)?.bta_rate_per_awb ?? 0)),
         awb_fixed_fee:              shipment.awb_fixed_fee ?? 1000,
         form_e_usd_value:           shipment.form_e_usd_value ?? 0,
-        form_e_pkr_rate:    shipment.form_e_pkr_rate ?? 0,
+        form_e_pkr_rate:          shipment.form_e_pkr_rate ?? 0,
+        form_e_pkr_rate_payable:  shipment.form_e_pkr_rate_payable ?? 0,
         form_e_supplier_id: shipment.form_e_supplier_id ?? '',
         amendment_charges:  shipment.amendment_charges ?? 0,
         cass_airline_rate:  shipment.cass_airline_rate ?? '',
@@ -103,7 +113,7 @@ export function ShipmentFormModal({
         notes:              shipment.notes ?? '',
       }
     }
-    return EMPTY
+    return { ...EMPTY, pkr_exchange_rate: fixedUsdRate || EMPTY.pkr_exchange_rate }
   })
 
   const [existingUrls, setExistingUrls] = useState(() =>
@@ -253,7 +263,8 @@ export function ShipmentFormModal({
       other_charges_due_airline:  otherChargesTotal,
       awb_fixed_fee:              parseFloat(form.awb_fixed_fee) || 0,
       form_e_usd_value:           parseFloat(form.form_e_usd_value) || 0,
-      form_e_pkr_rate:    parseFloat(form.form_e_pkr_rate) || 0,
+      form_e_pkr_rate:          parseFloat(form.form_e_pkr_rate) || 0,
+      form_e_pkr_rate_payable:  parseFloat(form.form_e_pkr_rate_payable) || 0,
       form_e_supplier_id: form.form_e_supplier_id || null,
       amendment_charges:  parseFloat(form.amendment_charges) || 0,
       cass_airline_rate:  parseFloat(form.cass_airline_rate) || 0,
@@ -280,6 +291,9 @@ export function ShipmentFormModal({
     ? `IDC Tax — ${idcTaxRate}% of clearing (PKR)`
     : 'IDC Tax (PKR — PEW only)'
 
+  const { role } = useAuth()
+  const isDataEntry = role === 'Data Entry'
+
   return (
     <Modal
       title={mode === 'add' ? 'Add Shipment' : `Edit — ${shipment?.awb_number ?? 'Shipment'}`}
@@ -294,8 +308,9 @@ export function ShipmentFormModal({
               <input type="date" name="flight_date" className={INP} value={form.flight_date} onChange={setF('flight_date')} />
             </Field>
             <Field label="AWB Number" required>
-              <input name="awb_number" className={INP} value={form.awb_number} onChange={setF('awb_number')}
-                placeholder="176-1421-4841" />
+              <input name="awb_number" className={INP} value={form.awb_number}
+                onChange={(e) => setForm((p) => ({ ...p, awb_number: formatAWB(e.target.value) }))}
+                placeholder="176-1421-4841" maxLength={12} />
             </Field>
             <Field label="Status">
               <select name="status" className={INP} value={form.status} onChange={setF('status')}>
@@ -356,9 +371,19 @@ export function ShipmentFormModal({
         </Section>
 
         {/* ── 3. Client Rates & Charges ── */}
+        {!isDataEntry && (
         <Section title="Client Rates & Charges">
           <div className="grid grid-cols-4 gap-3">
-            <Field label="USD → PKR Exchange Rate">
+            <Field label={
+              <span className="flex items-center gap-1.5">
+                USD Rate
+                {mode === 'add' && fixedUsdRate > 0 && (
+                  <span className="text-xs font-normal text-green-600 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-full">
+                    Fixed
+                  </span>
+                )}
+              </span>
+            }>
               <input type="number" name="pkr_exchange_rate" step="0.01" min="1" className={INP}
                 value={form.pkr_exchange_rate}
                 onChange={(e) => handleExchangeRateChange(e.target.value)}
@@ -462,8 +487,10 @@ export function ShipmentFormModal({
             </div>
           )}
         </Section>
+        )}
 
         {/* ── 4. Form E ── */}
+        {!isDataEntry && (
         <Section title="Form E">
           <div className="grid grid-cols-4 gap-3">
             <Field label="Form E Supplier">
@@ -476,15 +503,20 @@ export function ShipmentFormModal({
               <input type="number" name="form_e_usd_value" step="0.01" min="0" className={INP}
                 value={form.form_e_usd_value} onChange={setF('form_e_usd_value')} placeholder="0" />
             </Field>
-            <Field label="PKR Rate per USD">
+            <Field label="PKR Rate Receivable">
               <input type="number" name="form_e_pkr_rate" step="0.01" min="0" className={INP}
-                value={form.form_e_pkr_rate} onChange={setF('form_e_pkr_rate')} placeholder="13.00" />
+                value={form.form_e_pkr_rate} onChange={setF('form_e_pkr_rate')} placeholder="0.00" />
+            </Field>
+            <Field label="PKR Rate Payable">
+              <input type="number" name="form_e_pkr_rate_payable" step="0.01" min="0" className={INP}
+                value={form.form_e_pkr_rate_payable} onChange={setF('form_e_pkr_rate_payable')} placeholder="0.00" />
             </Field>
             <Field label="Form E Amount (PKR)">
               <input readOnly className={RO} value={pkr(formEAmountPkr)} />
             </Field>
           </div>
         </Section>
+        )}
 
         {/* ── 5. Shipment Documents ── */}
         <Section title="Shipment Documents">
@@ -535,6 +567,7 @@ export function ShipmentFormModal({
         </Section>
 
         {/* ── Total banner ── */}
+        {!isDataEntry && (
         <div className="rounded-lg bg-navy px-5 py-4 flex items-center justify-between">
           <span className="text-sm font-semibold text-white uppercase tracking-wide">
             Total Receivable
@@ -543,6 +576,7 @@ export function ShipmentFormModal({
             {pkr(totalReceivable)}
           </span>
         </div>
+        )}
 
         {/* ── Notes ── */}
         <Field label="Notes">

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Plus, Download, Pencil, Trash2, FileText, Upload } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 import { Card, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Spinner } from '../components/ui/Spinner'
@@ -20,6 +21,7 @@ const STATUS_ROW = {
   'NO SHOW':   'bg-orange-50',
   'OFFLOADED': 'bg-purple-50',
   'SHPD':      'bg-green-50',
+  'EMAILED':   'bg-teal-50',
 }
 
 const STATUS_BADGE = {
@@ -30,9 +32,10 @@ const STATUS_BADGE = {
   'NO SHOW':   'bg-orange-100 text-orange-700',
   'OFFLOADED': 'bg-purple-100 text-purple-700',
   'SHPD':      'bg-green-100 text-green-700',
+  'EMAILED':   'bg-teal-100 text-teal-700',
 }
 
-const STATUSES = ['PNDNG', 'AP-BLZ', 'BKD', 'CNCLD', 'NO SHOW', 'OFFLOADED', 'SHPD']
+const STATUSES = ['PNDNG', 'AP-BLZ', 'BKD', 'CNCLD', 'NO SHOW', 'OFFLOADED', 'SHPD', 'EMAILED']
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -82,6 +85,8 @@ function exportCSV(rows) {
 
 export default function Shipments() {
   const navigate = useNavigate()
+  const { role } = useAuth()
+  const isDataEntry = role === 'Data Entry'
 
   // ── Data state ──
   const [shipments,      setShipments]      = useState([])
@@ -91,6 +96,7 @@ export default function Shipments() {
   const [formESuppliers, setFormESuppliers] = useState([])
   const [salesAgents,    setSalesAgents]    = useState([])
   const [idcTaxRate,     setIdcTaxRate]     = useState(0)
+  const [fixedUsdRate,   setFixedUsdRate]   = useState(0)
   const [loading,        setLoading]        = useState(true)
   const [error,          setError]          = useState(null)
   const [saving,         setSaving]         = useState(false)
@@ -150,6 +156,19 @@ export default function Shipments() {
       setFormESuppliers(feData ?? [])
       setIdcTaxRate(parseFloat(settData?.idc_tax_rate ?? 0))
       setSalesAgents(saData ?? [])
+      // Only use fixed rate if today falls within the 15-day window
+      const rate      = parseFloat(settData?.fixed_usd_pkr_rate ?? 0)
+      const validFrom = settData?.fixed_usd_rate_valid_from
+      if (rate && validFrom) {
+        const from  = new Date(validFrom)
+        const until = new Date(from); until.setDate(until.getDate() + 14)
+        const today = new Date().toISOString().slice(0, 10)
+        const f     = validFrom.slice(0, 10)
+        const u     = until.toISOString().slice(0, 10)
+        setFixedUsdRate(today >= f && today <= u ? rate : 0)
+      } else {
+        setFixedUsdRate(0)
+      }
     }
     setLoading(false)
   }, [])
@@ -283,9 +302,11 @@ export default function Shipments() {
             <p className="text-sm text-gray-500 mt-0.5">All shipments — the source of truth for all reports.</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => exportCSV(filtered)}>
-              <Download className="w-4 h-4" />Export CSV
-            </Button>
+            {!isDataEntry && (
+              <Button variant="secondary" onClick={() => exportCSV(filtered)}>
+                <Download className="w-4 h-4" />Export CSV
+              </Button>
+            )}
             <Button variant="secondary" onClick={() => setShowImport(true)}>
               <Upload className="w-4 h-4" />Import Excel
             </Button>
@@ -404,8 +425,8 @@ export default function Shipments() {
                   <Th>Client</Th>
                   <Th>Route</Th>
                   <Th className="text-right">PCS / KGS</Th>
-                  <Th className="text-right">Net Rate (PKR/kg)</Th>
-                  <Th className="text-right">Total Receivable (PKR)</Th>
+                  {!isDataEntry && <Th className="text-right">Net Rate (PKR/kg)</Th>}
+                  {!isDataEntry && <Th className="text-right">Total Receivable (PKR)</Th>}
                   <Th>Status</Th>
                   <Th>Actions</Th>
                 </tr>
@@ -431,10 +452,12 @@ export default function Shipments() {
                     <Td className="text-right font-mono text-sm whitespace-nowrap">
                       {s.pieces} / {Number(s.chargeable_weight || 0).toFixed(3)}
                     </Td>
-                    <Td className="text-right font-mono">PKR {fmt(s.net_rate)}</Td>
-                    <Td className="text-right font-mono font-semibold text-gray-800 whitespace-nowrap">
-                      PKR {fmt(s.total_receivable)}
-                    </Td>
+                    {!isDataEntry && <Td className="text-right font-mono">PKR {fmt(s.net_rate)}</Td>}
+                    {!isDataEntry && (
+                      <Td className="text-right font-mono font-semibold text-gray-800 whitespace-nowrap">
+                        PKR {fmt(s.total_receivable)}
+                      </Td>
+                    )}
                     <Td>
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${STATUS_BADGE[s.status] ?? ''}`}>
                         {s.status}
@@ -452,11 +475,13 @@ export default function Shipments() {
                           className="p-1.5 rounded hover:bg-red-50 text-gray-500 hover:text-danger transition-colors">
                           <Trash2 className="w-4 h-4" />
                         </button>
-                        <button title="Generate Invoice"
-                          onClick={() => navigate('/invoices', { state: { shipmentId: s.id } })}
-                          className="p-1.5 rounded hover:bg-blue-50 text-gray-500 hover:text-accent transition-colors">
-                          <FileText className="w-4 h-4" />
-                        </button>
+                        {!isDataEntry && (
+                          <button title="Generate Invoice"
+                            onClick={() => navigate('/invoices', { state: { shipmentId: s.id } })}
+                            className="p-1.5 rounded hover:bg-blue-50 text-gray-500 hover:text-accent transition-colors">
+                            <FileText className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </Td>
                   </Tr>
@@ -472,10 +497,12 @@ export default function Shipments() {
                   <Td className="text-right font-mono font-semibold">
                     {Number(totals.totalWeight).toFixed(3)} KGS
                   </Td>
-                  <Td />
-                  <Td className="text-right font-mono font-semibold text-navy whitespace-nowrap">
-                    PKR {fmt(totals.totalReceivable)}
-                  </Td>
+                  {!isDataEntry && <Td />}
+                  {!isDataEntry && (
+                    <Td className="text-right font-mono font-semibold text-navy whitespace-nowrap">
+                      PKR {fmt(totals.totalReceivable)}
+                    </Td>
+                  )}
                   <Td colSpan={2} />
                 </tr>
               </Tfoot>
@@ -495,6 +522,7 @@ export default function Shipments() {
           formESuppliers={formESuppliers}
           salesAgents={salesAgents}
           idcTaxRate={idcTaxRate}
+          fixedUsdRate={fixedUsdRate}
           onSave={handleSave}
           onClose={() => setFormModal(null)}
           saving={saving}

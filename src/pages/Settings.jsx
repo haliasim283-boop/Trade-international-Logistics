@@ -551,9 +551,11 @@ export default function Settings() {
       idc_tax_rate:            settings.idc_tax_rate,
       invoice_overdue_days:    settings.invoice_overdue_days,
       cass_wht_rate:           settings.cass_wht_rate,
-      default_form_e_rate_min: settings.default_form_e_rate_min,
-      default_form_e_rate_max: settings.default_form_e_rate_max,
-      updated_at:              new Date().toISOString(),
+      default_form_e_rate_min:    settings.default_form_e_rate_min,
+      default_form_e_rate_max:    settings.default_form_e_rate_max,
+      fixed_usd_pkr_rate:         settings.fixed_usd_pkr_rate ?? null,
+      fixed_usd_rate_valid_from:  settings.fixed_usd_rate_valid_from ?? null,
+      updated_at:                 new Date().toISOString(),
     }).eq('id', 1)
     setSaving(false)
     if (error) { toast_msg(error.message, 'error') }
@@ -777,6 +779,54 @@ export default function Settings() {
                   </Field>
                 </div>
 
+                <SectionTitle>Fixed USD / PKR Exchange Rate</SectionTitle>
+                {(() => {
+                  const rate      = parseFloat(settings.fixed_usd_pkr_rate || 0)
+                  const validFrom = settings.fixed_usd_rate_valid_from || ''
+                  let validUntil  = ''
+                  let status      = null
+                  if (validFrom) {
+                    const from  = new Date(validFrom)
+                    const until = new Date(from)
+                    until.setDate(until.getDate() + 14)
+                    validUntil = until.toISOString().slice(0, 10)
+                    const today = new Date().toISOString().slice(0, 10)
+                    if (today < validFrom)        status = { label: 'Not started', cls: 'bg-gray-100 text-gray-600' }
+                    else if (today <= validUntil) status = { label: 'Active ✓',    cls: 'bg-green-100 text-green-700' }
+                    else                          status = { label: 'Expired',      cls: 'bg-red-100 text-red-600' }
+                  }
+                  return (
+                    <div className="mb-6 space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <Field label="Rate (PKR per USD)">
+                          <NumberInput step="0.01" value={settings.fixed_usd_pkr_rate ?? ''}
+                            onChange={(e) => setField('fixed_usd_pkr_rate', e.target.value)}
+                            placeholder="e.g. 278.50" />
+                        </Field>
+                        <Field label="Valid From (start of 15-day period)">
+                          <input type="date" className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                            value={validFrom}
+                            onChange={(e) => setField('fixed_usd_rate_valid_from', e.target.value)} />
+                        </Field>
+                        <Field label="Valid Until (auto-calculated)">
+                          <div className="flex items-center gap-2">
+                            <input readOnly className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm text-gray-500"
+                              value={validUntil || '—'} />
+                            {status && (
+                              <span className={`shrink-0 text-xs font-semibold px-2 py-1 rounded-full ${status.cls}`}>
+                                {status.label}
+                              </span>
+                            )}
+                          </div>
+                        </Field>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        When active, this rate is pre-filled in the Form E PKR Rate field on every new shipment. You can still override it per shipment.
+                      </p>
+                    </div>
+                  )
+                })()}
+
                 <div className="p-4 bg-blue-50 rounded-lg text-xs text-blue-700 mb-6">
                   <p className="font-semibold mb-1">Note on rates:</p>
                   <ul className="list-disc list-inside space-y-0.5">
@@ -784,6 +834,7 @@ export default function Settings() {
                     <li>CASS WHT (12%) is the withholding tax on airline payments — reduce net amount due to airline</li>
                     <li>Invoice overdue days is used to highlight unpaid invoices and client balances</li>
                     <li>BTA rates are configured per-airline in Party Management → Airlines</li>
+                    <li>Fixed USD/PKR rate auto-fills Form E rate on new shipments while active</li>
                   </ul>
                 </div>
 
