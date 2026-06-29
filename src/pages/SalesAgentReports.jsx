@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Printer, Plus, Trash2, Download, ChevronDown } from 'lucide-react'
+import { Printer, Plus, Trash2, Pencil, Download, ChevronDown } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { Card, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -101,6 +101,7 @@ export default function SalesAgentReports() {
   const [loading,          setLoading]          = useState(false)
   const [error,            setError]            = useState(null)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [editPayment,      setEditPayment]      = useState(null)
   const [deletePayId,      setDeletePayId]      = useState(null)
 
   // ── Load agents once ────────────────────────────────────────────────────────
@@ -475,7 +476,14 @@ export default function SalesAgentReports() {
                             : '—'}
                         </td>
                         <td className="py-2 text-gray-500 text-xs">{p.notes || ''}</td>
-                        <td className="py-2">
+                        <td className="py-2 whitespace-nowrap">
+                          <button
+                            title="Edit payment"
+                            onClick={() => setEditPayment(p)}
+                            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
                           <button
                             onClick={() => setDeletePayId(p.id)}
                             className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-danger"
@@ -517,6 +525,14 @@ export default function SalesAgentReports() {
           periodEnd={dateTo}
           onClose={() => setShowPaymentModal(false)}
           onSaved={() => { setShowPaymentModal(false); loadData() }}
+        />
+      )}
+
+      {editPayment && (
+        <SalesAgentPaymentModal
+          existing={editPayment}
+          onClose={() => setEditPayment(null)}
+          onSaved={() => { setEditPayment(null); loadData() }}
         />
       )}
 

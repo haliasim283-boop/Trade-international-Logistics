@@ -75,7 +75,7 @@ export default function Income() {
 
     const [{ data: cpData, error: cpErr }, { data: miData, error: miErr }] = await Promise.all([
       supabase.from('client_payments')
-        .select('id,payment_date,amount,payment_method,bank_account,transaction_id,description,notes,clients(name)')
+        .select('id,payment_date,amount,payment_method,bank_account,transaction_id,description,notes,receipt_url,clients(name)')
         .gte('payment_date', dateFrom)
         .lte('payment_date', dateTo)
         .order('payment_date', { ascending: false }),
@@ -108,6 +108,7 @@ export default function Income() {
       amount:        Number(r.amount),
       bank_account:  r.bank_account,
       transaction_id:r.transaction_id,
+      receipt_url:   r.receipt_url ?? null,
       editable:      false,  // client payments edited in Ledgers
     }))
     const mi = manualInc.map((r) => ({
@@ -283,7 +284,19 @@ export default function Income() {
                               {r.source}
                             </span>
                           </td>
-                          <td className="px-3 py-2.5 text-gray-700 text-xs">{r.description || '—'}</td>
+                          <td className="px-3 py-2.5 text-xs">
+                            {r.receipt_url ? (
+                              <button
+                                onClick={() => window.open(r.receipt_url, '_blank')}
+                                className="text-left text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                                title="Click to view receipt image"
+                              >
+                                {r.description || '—'}
+                              </button>
+                            ) : (
+                              <span className="text-gray-700">{r.description || '—'}</span>
+                            )}
+                          </td>
                           <td className="px-3 py-2.5 text-right font-mono font-semibold text-green-700">
                             {fmt(r.amount)}
                           </td>

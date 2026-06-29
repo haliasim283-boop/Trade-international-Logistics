@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Download, Printer, Plus, Trash2, AlertTriangle } from 'lucide-react'
+import { Download, Printer, Plus, Trash2, AlertTriangle, Pencil } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { Card, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -76,6 +76,7 @@ function buildEntries(shipments, payments, opening) {
       description: buildPaymentDesc(p),
       receivable:  0,
       received:    Number(p.amount || 0),
+      receipt_url: p.receipt_url ?? null,
       awb_number: '', origin: '', destination: '', pieces: null,
       weight: 0, net_rate: 0, clearing: 0, other: 0, form_e: 0,
     })
@@ -171,6 +172,7 @@ export default function Ledgers() {
 
   // ── Modal state ──
   const [paymentModal, setPaymentModal] = useState(false)
+  const [editPayment,  setEditPayment]  = useState(null)
   const [printView,    setPrintView]    = useState(false)
   const [deletePayId,  setDeletePayId]  = useState(null)
 
@@ -320,6 +322,16 @@ export default function Ledgers() {
     setSaving(false)
     if (err) { alert(err.message); return }
     setPaymentModal(false)
+    loadLedger(selClientId)
+  }
+
+  async function handleUpdatePayment(payload) {
+    const { id, ...fields } = payload
+    setSaving(true)
+    const { error: err } = await supabase.from('client_payments').update(fields).eq('id', id)
+    setSaving(false)
+    if (err) { alert(err.message); return }
+    setEditPayment(null)
     loadLedger(selClientId)
   }
 
@@ -632,7 +644,14 @@ export default function Ledgers() {
                           <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color: e.balance > 0 ? '#dc2626' : '#16a34a', whiteSpace: 'nowrap' }}>
                             {fmt(e.balance)}
                           </td>
-                          <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+                          <td style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <button
+                              title="Edit payment"
+                              onClick={() => setEditPayment(e)}
+                              className="p-1 rounded hover:bg-blue-100 text-gray-400 hover:text-blue-600 transition-colors"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
                             <button
                               title="Delete payment"
                               onClick={() => setDeletePayId(e.id)}
@@ -689,12 +708,23 @@ export default function Ledgers() {
         )}
       </div>
 
-      {/* Payment modal */}
+      {/* Add payment modal */}
       {paymentModal && selClientId && (
         <PaymentModal
           clientId={selClientId}
           onSave={handleAddPayment}
           onClose={() => setPaymentModal(false)}
+          saving={saving}
+        />
+      )}
+
+      {/* Edit payment modal */}
+      {editPayment && (
+        <PaymentModal
+          clientId={selClientId}
+          existing={editPayment}
+          onUpdate={handleUpdatePayment}
+          onClose={() => setEditPayment(null)}
           saving={saving}
         />
       )}

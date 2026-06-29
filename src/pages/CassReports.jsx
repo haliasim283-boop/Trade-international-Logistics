@@ -119,6 +119,7 @@ export default function CassReports() {
   const [loading,           setLoading]           = useState(false)
   const [error,             setError]             = useState(null)
   const [showPaymentModal,  setShowPaymentModal]  = useState(false)
+  const [editPayment,       setEditPayment]       = useState(null)
   const [showAdjModal,      setShowAdjModal]      = useState(false)
   const [editAdj,           setEditAdj]           = useState(null)
   const [deletePayId,       setDeletePayId]       = useState(null)
@@ -699,7 +700,14 @@ export default function CassReports() {
                         <td className="py-2 text-right font-mono font-semibold text-green-700">{fmt(p.amount)}</td>
                         <td className="py-2 font-mono text-xs text-gray-500">{p.transaction_id || '—'}</td>
                         <td className="py-2 text-gray-500 text-xs">{p.notes || ''}</td>
-                        <td className="py-2">
+                        <td className="py-2 whitespace-nowrap">
+                          <button
+                            title="Edit payment"
+                            onClick={() => setEditPayment(p)}
+                            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
                           <button
                             onClick={() => setDeletePayId(p.id)}
                             className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-danger"
@@ -738,6 +746,14 @@ export default function CassReports() {
           airlineId={selectedAirlineId}
           onClose={() => setShowPaymentModal(false)}
           onSaved={() => { setShowPaymentModal(false); loadData() }}
+        />
+      )}
+
+      {editPayment && (
+        <CassPaymentModal
+          existing={editPayment}
+          onClose={() => setEditPayment(null)}
+          onSaved={() => { setEditPayment(null); loadData() }}
         />
       )}
 
