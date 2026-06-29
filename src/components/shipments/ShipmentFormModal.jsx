@@ -309,7 +309,19 @@ export function ShipmentFormModal({
             </Field>
             <Field label="AWB Number" required>
               <input name="awb_number" className={INP} value={form.awb_number}
-                onChange={(e) => setForm((p) => ({ ...p, awb_number: formatAWB(e.target.value) }))}
+                onChange={(e) => {
+                  const formatted = formatAWB(e.target.value)
+                  const prefix = formatted.replace(/-/g, '').slice(0, 3)
+                  const matched = prefix.length === 3
+                    ? airlines.find((a) => a.iata_prefix === prefix)
+                    : null
+                  if (matched && matched.id !== form.airline_id) {
+                    handleAirlineChange(matched.id)
+                    setForm((p) => ({ ...p, awb_number: formatted }))
+                  } else {
+                    setForm((p) => ({ ...p, awb_number: formatted }))
+                  }
+                }}
                 placeholder="176-1421-4841" maxLength={13} />
             </Field>
             <Field label="Status">
