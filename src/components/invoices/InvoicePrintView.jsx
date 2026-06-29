@@ -38,7 +38,7 @@ function formatFullDate(dateStr) {
 
 // ── Print window HTML builder ────────────────────────────────────────────────
 
-function buildPrintHTML(invoice, clientName, clientCity) {
+export function buildPrintHTML(invoice, clientName, clientCity) {
   const hasClearing   = Number(invoice.clearing_charges) > 0
   const hasFormE      = Number(invoice.form_e_amount) > 0
   const hasOther      = Number(invoice.other_charges) > 0

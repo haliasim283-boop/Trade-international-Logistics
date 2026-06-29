@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Plus, Pencil, Trash2, Printer, Copy, Eye, AlertTriangle } from 'lucide-react'
+import { Plus, Pencil, Trash2, Download, Copy, Eye, AlertTriangle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { Card, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -8,7 +8,7 @@ import { Spinner } from '../components/ui/Spinner'
 import { Table, Thead, Th, Tbody, Tr, Td } from '../components/ui/Table'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { InvoiceFormModal } from '../components/invoices/InvoiceFormModal'
-import { InvoicePrintView } from '../components/invoices/InvoicePrintView'
+import { InvoicePrintView, buildPrintHTML } from '../components/invoices/InvoicePrintView'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -167,6 +167,64 @@ export default function Invoices() {
     await supabase.from('invoices').delete().eq('id', deleteId)
     setDeleteId(null)
     loadAll()
+  }
+
+  async function handleDownloadPDF(inv) {
+    const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+      import('html2canvas'),
+      import('jspdf'),
+    ])
+
+    const clientName = inv.clients?.name ?? ''
+    const clientCity = inv.clients?.city ?? ''
+    const html = buildPrintHTML(inv, clientName, clientCity)
+
+    const iframe = document.createElement('iframe')
+    iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;height:1px;border:none;'
+    document.body.appendChild(iframe)
+
+    await new Promise(resolve => {
+      iframe.onload = resolve
+      iframe.contentDocument.open()
+      iframe.contentDocument.write(html)
+      iframe.contentDocument.close()
+    })
+
+    await new Promise(r => setTimeout(r, 400))
+
+    const body = iframe.contentDocument.body
+    const contentHeight = body.scrollHeight
+    iframe.style.height = contentHeight + 'px'
+
+    const canvas = await html2canvas(body, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      width: 794,
+      height: contentHeight,
+    })
+
+    document.body.removeChild(iframe)
+
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+    const pageW  = pdf.internal.pageSize.getWidth()
+    const pageH  = pdf.internal.pageSize.getHeight()
+    const imgH   = (canvas.height * pageW) / canvas.width
+    const imgData = canvas.toDataURL('image/jpeg', 0.97)
+
+    let remaining = imgH
+    let yOffset   = 0
+    pdf.addImage(imgData, 'JPEG', 0, yOffset, pageW, imgH)
+    remaining -= pageH
+
+    while (remaining > 0) {
+      yOffset -= pageH
+      pdf.addPage()
+      pdf.addImage(imgData, 'JPEG', 0, yOffset, pageW, imgH)
+      remaining -= pageH
+    }
+
+    pdf.save(`Invoice-${inv.invoice_number}.pdf`)
   }
 
   function handleDuplicate(inv) {
@@ -347,11 +405,11 @@ export default function Invoices() {
                               <Copy className="w-4 h-4" />
                             </button>
                             <button
-                              title="Print / PDF"
-                              onClick={() => setPrintInvoice(inv)}
-                              className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-navy transition-colors"
+                              title="Download PDF"
+                              onClick={() => handleDownloadPDF(inv)}
+                              className="p-1.5 rounded hover:bg-green-50 text-gray-500 hover:text-green-700 transition-colors"
                             >
-                              <Printer className="w-4 h-4" />
+                              <Download className="w-4 h-4" />
                             </button>
                             <button
                               title="Delete"
