@@ -310,7 +310,7 @@ export function ShipmentFormModal({
             <Field label="AWB Number" required>
               <input name="awb_number" className={INP} value={form.awb_number}
                 onChange={(e) => setForm((p) => ({ ...p, awb_number: formatAWB(e.target.value) }))}
-                placeholder="176-1421-4841" maxLength={12} />
+                placeholder="176-1421-4841" maxLength={13} />
             </Field>
             <Field label="Status">
               <select name="status" className={INP} value={form.status} onChange={setF('status')}>
