@@ -116,8 +116,9 @@ export default function Shipments() {
   const [filterTo,      setFilterTo]      = useState('')
 
   // ── Bulk action state ──
-  const [selected,   setSelected]   = useState(new Set())
-  const [bulkStatus, setBulkStatus] = useState('SHPD')
+  const [selected,    setSelected]    = useState(new Set())
+  const [bulkStatus,  setBulkStatus]  = useState('SHPD')
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   // ── Load ────────────────────────────────────────────────────────────────
 
@@ -260,6 +261,21 @@ export default function Shipments() {
     loadAll()
   }
 
+  async function handleBulkDelete() {
+    if (!selected.size) return
+    setSaving(true)
+    const ids = [...selected]
+    const CHUNK = 100
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const { error } = await supabase.from('shipments').delete().in('id', ids.slice(i, i + CHUNK))
+      if (error) { setSaving(false); alert(error.message); loadAll(); return }
+    }
+    setSaving(false)
+    setBulkDeleting(false)
+    setSelected(new Set())
+    loadAll()
+  }
+
   // ── CRUD ─────────────────────────────────────────────────────────────────
 
   async function handleSave(payload) {
@@ -274,7 +290,8 @@ export default function Shipments() {
   }
 
   async function handleDelete() {
-    await supabase.from('shipments').delete().eq('id', deleteId)
+    const { error } = await supabase.from('shipments').delete().eq('id', deleteId)
+    if (error) { alert(error.message); return }
     setDeleteId(null)
     loadAll()
   }
@@ -388,6 +405,10 @@ export default function Shipments() {
             </select>
             <Button size="sm" onClick={handleBulkStatus} disabled={saving}>
               {saving && <Spinner size="sm" />}Apply
+            </Button>
+            <span className="text-gray-300">|</span>
+            <Button size="sm" variant="danger" onClick={() => setBulkDeleting(true)} disabled={saving}>
+              <Trash2 className="w-4 h-4" />Delete selected
             </Button>
             <button className="ml-auto text-xs text-gray-400 hover:text-gray-600"
               onClick={() => setSelected(new Set())}>
@@ -535,6 +556,15 @@ export default function Shipments() {
           message="This shipment will be permanently deleted. Any linked invoice data is kept."
           onConfirm={handleDelete}
           onCancel={() => setDeleteId(null)}
+        />
+      )}
+
+      {bulkDeleting && (
+        <ConfirmDialog
+          title="Delete Shipments"
+          message={`${selected.size} shipment${selected.size !== 1 ? 's' : ''} will be permanently deleted. Any linked invoice data is kept.`}
+          onConfirm={handleBulkDelete}
+          onCancel={() => setBulkDeleting(false)}
         />
       )}
 
