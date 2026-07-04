@@ -416,7 +416,13 @@ export default function Shipments() {
   }
 
   async function updateField(id, field, rawValue) {
-    const payload = { [field]: coerceField(field, rawValue), updated_at: new Date().toISOString() }
+    let value = coerceField(field, rawValue)
+    if (field === 'form_e_usd_value') {
+      // The cell shows/edits a USD rate per kg; the column stores the total USD value.
+      const row = shipments.find((r) => r.id === id)
+      value = r2(Number(row?.chargeable_weight || 0) * (parseFloat(rawValue) || 0))
+    }
+    const payload = { [field]: value, updated_at: new Date().toISOString() }
     const { error } = await supabase.from('shipments').update(payload).eq('id', id)
     if (error) throw new Error(error.message)
     await refreshRow(id)

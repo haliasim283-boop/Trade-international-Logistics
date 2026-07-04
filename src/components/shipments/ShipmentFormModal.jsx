@@ -68,7 +68,7 @@ const EMPTY = {
   chargeable_weight: '', net_rate: '', pkr_exchange_rate: 280,
   clearing_charges: 0, idc_tax: 0,
   other_charges_due_airline: 0, awb_fixed_fee: 1000,
-  form_e_usd_value: 0, form_e_pkr_rate: 0, form_e_pkr_rate_payable: 0, form_e_supplier_id: '',
+  form_e_usd_value: 1, form_e_pkr_rate: 0, form_e_pkr_rate_payable: 0, form_e_supplier_id: '',
   cass_airline_rate: '',
   clearing_agent_id: '', sales_agent_id: '', sales_agent_commission_per_kg: 0,
   status: 'PNDNG', notes: '',
@@ -97,7 +97,9 @@ export function ShipmentFormModal({
         idc_tax:            shipment.idc_tax ?? 0,
         other_charges_due_airline:  shipment.other_charges_due_airline ?? 0,
         awb_fixed_fee:              shipment.awb_fixed_fee ?? 1000,
-        form_e_usd_value:           shipment.form_e_usd_value ?? 0,
+        form_e_usd_value:           Number(shipment.chargeable_weight) > 0
+                                       ? r2(Number(shipment.form_e_usd_value ?? 0) / Number(shipment.chargeable_weight))
+                                       : (shipment.form_e_usd_value ?? 1),
         form_e_pkr_rate:          shipment.form_e_pkr_rate ?? 0,
         form_e_pkr_rate_payable:  shipment.form_e_pkr_rate_payable ?? 0,
         form_e_supplier_id: shipment.form_e_supplier_id ?? '',
@@ -131,7 +133,8 @@ export function ShipmentFormModal({
   const pkrRate               = parseFloat(form.pkr_exchange_rate || 1)
   const cw                    = parseFloat(form.chargeable_weight || 0)
   const freightAmount         = r2(cw * parseFloat(form.net_rate || 0))
-  const formEAmountPkr        = r2(parseFloat(form.form_e_usd_value || 0) * parseFloat(form.form_e_pkr_rate || 0))
+  const formEUsdTotal         = r2(cw * parseFloat(form.form_e_usd_value || 0))
+  const formEAmountPkr        = r2(formEUsdTotal * parseFloat(form.form_e_pkr_rate || 0))
   const salesAgentCommission  = r2(cw * parseFloat(form.sales_agent_commission_per_kg || 0))
   const totalReceivable       = r2(
     freightAmount
@@ -226,7 +229,7 @@ export function ShipmentFormModal({
       idc_tax:            parseFloat(form.idc_tax) || 0,
       other_charges_due_airline:  parseFloat(form.other_charges_due_airline) || 0,
       awb_fixed_fee:              parseFloat(form.awb_fixed_fee) || 0,
-      form_e_usd_value:           parseFloat(form.form_e_usd_value) || 0,
+      form_e_usd_value:           formEUsdTotal,
       form_e_pkr_rate:          parseFloat(form.form_e_pkr_rate) || 0,
       form_e_pkr_rate_payable:  parseFloat(form.form_e_pkr_rate_payable) || 0,
       form_e_supplier_id: form.form_e_supplier_id || null,
@@ -445,9 +448,9 @@ export function ShipmentFormModal({
                 {formESuppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </Field>
-            <Field label="USD Value">
+            <Field label="USD Rate (per kg)">
               <input type="number" name="form_e_usd_value" step="0.01" min="0" className={INP}
-                value={form.form_e_usd_value} onChange={setF('form_e_usd_value')} placeholder="0" />
+                value={form.form_e_usd_value} onChange={setF('form_e_usd_value')} placeholder="1.00" />
             </Field>
             <Field label="PKR Rate Receivable">
               <input type="number" name="form_e_pkr_rate" step="0.01" min="0" className={INP}
