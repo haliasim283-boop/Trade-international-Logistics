@@ -237,15 +237,14 @@ export default function CassReports() {
     const totalWHT       = r2(rows.reduce((s, r) => s + r.tax_withheld, 0))
     const totalNet       = r2(rows.reduce((s, r) => s + r.net_amount, 0))
     const awbCount       = rows.length
-    const bta            = r2(Number(airline?.bta_rate_per_awb || 0) * awbCount)
     const totalAdj       = r2(adjustments.reduce((s, a) => s + Number(a.amount || 0), 0))
     const netDueExport   = r2(totalNet + totalAdj)
-    const grandTotal     = r2(netDueExport + bta)
+    const grandTotal     = netDueExport
     const totalPaid      = r2(payments.reduce((s, p) => s + Number(p.amount || 0), 0))
     const balanceDue     = r2(grandTotal - totalPaid)
     return {
       totalWeight, totalPWC, totalOCAirline,
-      totalWHT, totalNet, awbCount, bta, totalAdj,
+      totalWHT, totalNet, awbCount, totalAdj,
       netDueExport, grandTotal, totalPaid, balanceDue,
       status: cassperiod?.status ?? 'Pending',
       isPia: airline?.iata_prefix === '214',
@@ -543,13 +542,6 @@ export default function CassReports() {
                       <td className="py-2 font-semibold text-gray-900">Net Due Export</td>
                       <td className="py-2 text-right font-mono font-semibold text-navy">PKR {fmt(recap.netDueExport)}</td>
                     </tr>
-                    {recap.bta > 0 && (
-                      <RecapRow
-                        label={`Net Due DIP (BTA: PKR ${fmt(airline?.bta_rate_per_awb ?? 0)} × ${recap.awbCount})`}
-                        value={recap.bta}
-                        amber
-                      />
-                    )}
                     <tr className="bg-navy text-white">
                       <td className="px-3 py-3 font-bold rounded-bl-lg">GRAND TOTAL PAYABLE</td>
                       <td className="px-3 py-3 text-right font-mono font-bold text-lg rounded-br-lg">

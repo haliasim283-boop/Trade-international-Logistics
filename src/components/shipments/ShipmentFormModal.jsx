@@ -66,11 +66,10 @@ const EMPTY = {
   awb_number: '', airline_id: '', client_id: '',
   origin: '', destination: '', pieces: 1,
   chargeable_weight: '', net_rate: '', pkr_exchange_rate: 280,
-  clearing_charges: 0, idc_tax: 0, awb_upload_charges: 0,
-  awb_self_uploaded: false,
+  clearing_charges: 0, idc_tax: 0,
   other_charges_due_airline: 0, awb_fixed_fee: 1000,
   form_e_usd_value: 0, form_e_pkr_rate: 0, form_e_pkr_rate_payable: 0, form_e_supplier_id: '',
-  amendment_charges: 0, cass_airline_rate: '',
+  cass_airline_rate: '',
   clearing_agent_id: '', sales_agent_id: '', sales_agent_commission_per_kg: 0,
   status: 'PNDNG', notes: '',
 }
@@ -96,15 +95,12 @@ export function ShipmentFormModal({
         pkr_exchange_rate:  shipment.pkr_exchange_rate ?? 280,
         clearing_charges:   shipment.clearing_charges ?? 0,
         idc_tax:            shipment.idc_tax ?? 0,
-        awb_upload_charges:         shipment.awb_upload_charges ?? 0,
-        awb_self_uploaded:          shipment.awb_self_uploaded ?? false,
-        other_charges_due_airline:  Math.max(0, (shipment.other_charges_due_airline ?? 0) - parseFloat(airlines.find((a) => a.id === shipment.airline_id)?.bta_rate_per_awb ?? 0)),
+        other_charges_due_airline:  shipment.other_charges_due_airline ?? 0,
         awb_fixed_fee:              shipment.awb_fixed_fee ?? 1000,
         form_e_usd_value:           shipment.form_e_usd_value ?? 0,
         form_e_pkr_rate:          shipment.form_e_pkr_rate ?? 0,
         form_e_pkr_rate_payable:  shipment.form_e_pkr_rate_payable ?? 0,
         form_e_supplier_id: shipment.form_e_supplier_id ?? '',
-        amendment_charges:  shipment.amendment_charges ?? 0,
         cass_airline_rate:  shipment.cass_airline_rate ?? '',
         clearing_agent_id:              shipment.clearing_agent_id ?? '',
         sales_agent_id:                 shipment.sales_agent_id ?? '',
@@ -137,18 +133,13 @@ export function ShipmentFormModal({
   const freightAmount         = r2(cw * parseFloat(form.net_rate || 0))
   const formEAmountPkr        = r2(parseFloat(form.form_e_usd_value || 0) * parseFloat(form.form_e_pkr_rate || 0))
   const salesAgentCommission  = r2(cw * parseFloat(form.sales_agent_commission_per_kg || 0))
-  const selectedAirline       = airlines.find((a) => a.id === form.airline_id)
-  const btaPerAwb             = r2(parseFloat(selectedAirline?.bta_rate_per_awb ?? 0))
-  const otherChargesTotal     = r2(parseFloat(form.other_charges_due_airline || 0) + btaPerAwb)
   const totalReceivable       = r2(
     freightAmount
     + parseFloat(form.clearing_charges || 0)
     + parseFloat(form.idc_tax || 0)
-    + parseFloat(form.awb_upload_charges || 0)
-    + otherChargesTotal
+    + parseFloat(form.other_charges_due_airline || 0)
     + parseFloat(form.awb_fixed_fee || 0)
     + formEAmountPkr
-    + parseFloat(form.amendment_charges || 0)
     + salesAgentCommission
   )
   const cassFreightTotal = r2(cw * parseFloat(form.cass_airline_rate || 0) * pkrRate)
@@ -157,16 +148,7 @@ export function ShipmentFormModal({
   const setF = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }))
 
   function handleAirlineChange(id) {
-    const airline = airlines.find((a) => a.id === id)
-    const rate = parseFloat(form.pkr_exchange_rate || 1)
-    const otherCharges = form.awb_self_uploaded
-      ? r2(Number(airline?.other_charges_self_upload ?? 0) * rate)
-      : r2(Number(airline?.awb_airline_upload_charges ?? 0) * rate)
-    setForm((p) => ({
-      ...p,
-      airline_id: id,
-      awb_upload_charges: otherCharges,
-    }))
+    setForm((p) => ({ ...p, airline_id: id }))
   }
 
   function handleOriginChange(raw) {
@@ -189,24 +171,8 @@ export function ShipmentFormModal({
     setForm((p) => ({ ...p, clearing_charges: val, idc_tax: idc }))
   }
 
-  function handleSelfUploadChange(checked) {
-    const airline = airlines.find((a) => a.id === form.airline_id)
-    const rate = parseFloat(form.pkr_exchange_rate || 1)
-    const otherCharges = checked
-      ? r2(Number(airline?.other_charges_self_upload ?? 0) * rate)
-      : r2(Number(airline?.awb_airline_upload_charges ?? 0) * rate)
-    setForm((p) => ({ ...p, awb_self_uploaded: checked, awb_upload_charges: otherCharges }))
-  }
-
   function handleExchangeRateChange(val) {
-    const rate = parseFloat(val) || 1
-    const airline = airlines.find((a) => a.id === form.airline_id)
-    const otherCharges = airline
-      ? (form.awb_self_uploaded
-          ? r2(Number(airline.other_charges_self_upload ?? 0) * rate)
-          : r2(Number(airline.awb_airline_upload_charges ?? 0) * rate))
-      : form.awb_upload_charges
-    setForm((p) => ({ ...p, pkr_exchange_rate: val, awb_upload_charges: otherCharges }))
+    setForm((p) => ({ ...p, pkr_exchange_rate: val }))
   }
 
   function handleAgentChange(id) {
@@ -258,15 +224,12 @@ export function ShipmentFormModal({
       pkr_exchange_rate:  parseFloat(form.pkr_exchange_rate) || 1,
       clearing_charges:   parseFloat(form.clearing_charges) || 0,
       idc_tax:            parseFloat(form.idc_tax) || 0,
-      awb_upload_charges:         parseFloat(form.awb_upload_charges) || 0,
-      awb_self_uploaded:          form.awb_self_uploaded,
-      other_charges_due_airline:  otherChargesTotal,
+      other_charges_due_airline:  parseFloat(form.other_charges_due_airline) || 0,
       awb_fixed_fee:              parseFloat(form.awb_fixed_fee) || 0,
       form_e_usd_value:           parseFloat(form.form_e_usd_value) || 0,
       form_e_pkr_rate:          parseFloat(form.form_e_pkr_rate) || 0,
       form_e_pkr_rate_payable:  parseFloat(form.form_e_pkr_rate_payable) || 0,
       form_e_supplier_id: form.form_e_supplier_id || null,
-      amendment_charges:  parseFloat(form.amendment_charges) || 0,
       cass_airline_rate:  parseFloat(form.cass_airline_rate) || 0,
       clearing_agent_id:             form.clearing_agent_id || null,
       sales_agent_id:                form.sales_agent_id    || null,
@@ -438,27 +401,15 @@ export function ShipmentFormModal({
                 disabled={form.origin !== 'PEW'} />
             </Field>
           </div>
-          <div className="grid grid-cols-4 gap-3 items-end">
-            <Field label="Amendment Charges (PKR)">
-              <input type="number" name="amendment_charges" step="0.01" min="0" className={INP}
-                value={form.amendment_charges} onChange={setF('amendment_charges')} />
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Other Charges (PKR)">
+              <input type="number" name="other_charges_due_airline" step="0.01" min="0" className={INP}
+                value={form.other_charges_due_airline} onChange={setF('other_charges_due_airline')}
+                placeholder="0" />
             </Field>
-            <label className="flex items-center gap-2 cursor-pointer pb-2">
-              <input
-                type="checkbox"
-                name="awb_self_uploaded"
-                checked={form.awb_self_uploaded}
-                onChange={(e) => handleSelfUploadChange(e.target.checked)}
-                className="w-4 h-4 accent-navy"
-              />
-              <span className="text-sm text-gray-700">
-                AWB Self-Uploaded
-                <span className="text-gray-400 ml-1 text-xs">(agent uploads)</span>
-              </span>
-            </label>
-            <Field label="AWB Upload Charges (PKR)">
-              <input type="number" name="awb_upload_charges" step="0.01" min="0" className={INP}
-                value={form.awb_upload_charges} onChange={setF('awb_upload_charges')} />
+            <Field label="AWB Fixed Fee (PKR)">
+              <input type="number" name="awb_fixed_fee" step="0.01" min="0" className={INP}
+                value={form.awb_fixed_fee} onChange={setF('awb_fixed_fee')} />
             </Field>
             <Field label="Sales Agent">
               <select name="sales_agent_id" className={INP} value={form.sales_agent_id} onChange={(e) => handleSalesAgentChange(e.target.value)}>
@@ -467,23 +418,6 @@ export function ShipmentFormModal({
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
               </select>
-            </Field>
-          </div>
-          <div className="grid grid-cols-4 gap-3">
-            <Field label="Other Charges (PKR)">
-              <input type="number" name="other_charges_due_airline" step="0.01" min="0" className={INP}
-                value={form.other_charges_due_airline} onChange={setF('other_charges_due_airline')}
-                placeholder="0" />
-            </Field>
-            <Field label="BTA per AWB (PKR)">
-              <input readOnly className={RO} value={pkr(btaPerAwb)} />
-            </Field>
-            <Field label="Other Charges Due Airline (PKR)">
-              <input readOnly className={RO} value={pkr(otherChargesTotal)} />
-            </Field>
-            <Field label="AWB Fixed Fee (PKR)">
-              <input type="number" name="awb_fixed_fee" step="0.01" min="0" className={INP}
-                value={form.awb_fixed_fee} onChange={setF('awb_fixed_fee')} />
             </Field>
           </div>
           {form.sales_agent_id && (

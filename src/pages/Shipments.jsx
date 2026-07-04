@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Plus, Download, Pencil, Trash2, FileText, Upload } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
@@ -10,6 +10,104 @@ import { Table, Thead, Th, Tbody, Tr, Td, Tfoot } from '../components/ui/Table'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { ShipmentFormModal } from '../components/shipments/ShipmentFormModal'
 import { ShipmentImportModal } from '../components/shipments/ShipmentImportModal'
+
+const SHIPMENT_SELECT = '*, airlines(name, iata_prefix), clients(name), clearing_agents(name, origin_code), form_e_suppliers(name), sales_agents(name)'
+
+const ORIGINS      = ['PEW','ISB','MUX','SKT','LHE','KHI']
+const DESTINATIONS = ['DXB','DOH','AUH','SHJ','BAH','JED','MCT','AAN','KWI','RUH','RKT','MAN','YYZ','LHR']
+
+const FLOAT_FIELDS = new Set([
+  'chargeable_weight', 'net_rate', 'pkr_exchange_rate', 'clearing_charges', 'idc_tax',
+  'other_charges_due_airline', 'awb_fixed_fee', 'cass_airline_rate',
+  'sales_agent_commission_per_kg', 'form_e_usd_value', 'form_e_pkr_rate', 'form_e_pkr_rate_payable',
+])
+const INT_FIELDS      = new Set(['pieces'])
+const NULLABLE_FIELDS = new Set(['clearing_agent_id', 'form_e_supplier_id', 'sales_agent_id'])
+
+function coerceField(field, raw) {
+  if (FLOAT_FIELDS.has(field)) return parseFloat(raw) || 0
+  if (INT_FIELDS.has(field))   return parseInt(raw) || 1
+  if (NULLABLE_FIELDS.has(field)) return raw || null
+  if (field === 'destination' || field === 'origin') return raw.toUpperCase().slice(0, 3)
+  return raw
+}
+
+// ── Inline-editable table cell ──────────────────────────────────────────────
+function EditableCell({ value, display, type = 'text', options, onSave, align, step, disabled }) {
+  const [editing, setEditing] = useState(false)
+  const [draft,   setDraft]   = useState(value)
+  const [saving,  setSaving]  = useState(false)
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select?.() }
+  }, [editing])
+
+  const alignCls = align === 'right' ? 'text-right font-mono' : ''
+
+  if (disabled) {
+    return <Td className={alignCls}>{display}</Td>
+  }
+
+  async function commit(newVal) {
+    if (String(newVal ?? '') === String(value ?? '')) { setEditing(false); return }
+    setSaving(true)
+    try {
+      await onSave(newVal)
+      setEditing(false)
+    } catch (err) {
+      alert(err.message ?? 'Failed to save')
+    }
+    setSaving(false)
+  }
+
+  if (!editing) {
+    return (
+      <Td
+        className={`cursor-pointer hover:bg-blue-50 hover:ring-1 hover:ring-inset hover:ring-accent/40 ${alignCls}`}
+        onClick={() => { setDraft(value); setEditing(true) }}
+        title="Click to edit"
+      >
+        {saving ? <Spinner size="sm" /> : (display ?? <span className="text-gray-300">—</span>)}
+      </Td>
+    )
+  }
+
+  if (type === 'select') {
+    return (
+      <Td className="p-1">
+        <select
+          ref={inputRef}
+          className="w-full border border-accent rounded px-1.5 py-1 text-xs focus:outline-none bg-white"
+          value={draft ?? ''}
+          onChange={(e) => commit(e.target.value)}
+          onBlur={() => setEditing(false)}
+        >
+          <option value="">—</option>
+          {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </Td>
+    )
+  }
+
+  return (
+    <Td className="p-1">
+      <input
+        ref={inputRef}
+        type={type}
+        step={step}
+        className={`w-full border border-accent rounded px-1.5 py-1 text-xs focus:outline-none ${align === 'right' ? 'text-right font-mono' : ''}`}
+        value={draft ?? ''}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => commit(draft)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); commit(draft) }
+          if (e.key === 'Escape') setEditing(false)
+        }}
+      />
+    </Td>
+  )
+}
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -46,6 +144,10 @@ function fmt(n) {
 function fmtDate(s) {
   const [y, m, d] = s.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('en-GB')
+}
+
+function fmtRate(n) {
+  return Number(n || 0).toFixed(4)
 }
 
 function exportCSV(rows) {
@@ -137,7 +239,7 @@ export default function Shipments() {
     ] = await Promise.all([
       supabase
         .from('shipments')
-        .select('*, airlines(name, iata_prefix), clients(name), clearing_agents(name), form_e_suppliers(name)')
+        .select(SHIPMENT_SELECT)
         .order('flight_date', { ascending: false })
         .order('created_at',  { ascending: false }),
       supabase.from('airlines').select('*').eq('is_active', true).order('name'),
@@ -233,6 +335,16 @@ export default function Shipments() {
     totalReceivable: filtered.reduce((s, r) => s + parseFloat(r.total_receivable || 0), 0),
   }), [filtered])
 
+  // ── Dropdown option lists for inline editing ────────────────────────────
+  const airlineOptions       = useMemo(() => airlines.map((a) => ({ value: a.id, label: `${a.name} (${a.iata_prefix})` })), [airlines])
+  const clientOptions        = useMemo(() => clients.map((c) => ({ value: c.id, label: c.name })), [clients])
+  const clearingAgentOptions = useMemo(() => clearingAgents.map((a) => ({ value: a.id, label: `${a.name} (${a.origin_code})` })), [clearingAgents])
+  const formESupplierOptions = useMemo(() => formESuppliers.map((s) => ({ value: s.id, label: s.name })), [formESuppliers])
+  const salesAgentOptions    = useMemo(() => salesAgents.map((a) => ({ value: a.id, label: a.name })), [salesAgents])
+  const originOptions        = ORIGINS.map((o) => ({ value: o, label: o }))
+  const destinationOptions   = DESTINATIONS.map((d) => ({ value: d, label: d }))
+  const statusOptions        = STATUSES.map((s) => ({ value: s, label: s }))
+
   // ── Selection / bulk ─────────────────────────────────────────────────────
 
   const allSelected = filtered.length > 0 && filtered.every((s) => selected.has(s.id))
@@ -294,6 +406,20 @@ export default function Shipments() {
     if (error) { alert(error.message); return }
     setDeleteId(null)
     loadAll()
+  }
+
+  // ── Inline cell edit ─────────────────────────────────────────────────────
+
+  async function refreshRow(id) {
+    const { data } = await supabase.from('shipments').select(SHIPMENT_SELECT).eq('id', id).single()
+    if (data) setShipments((prev) => prev.map((s) => (s.id === id ? data : s)))
+  }
+
+  async function updateField(id, field, rawValue) {
+    const payload = { [field]: coerceField(field, rawValue), updated_at: new Date().toISOString() }
+    const { error } = await supabase.from('shipments').update(payload).eq('id', id)
+    if (error) throw new Error(error.message)
+    await refreshRow(id)
   }
 
   // ── Filter helpers ───────────────────────────────────────────────────────
@@ -444,46 +570,161 @@ export default function Shipments() {
                   <Th>AWB Number</Th>
                   <Th>Airline</Th>
                   <Th>Client</Th>
-                  <Th>Route</Th>
-                  <Th className="text-right">PCS / KGS</Th>
+                  <Th>Origin</Th>
+                  <Th>Destination</Th>
+                  <Th className="text-right">Pieces</Th>
+                  <Th className="text-right">Weight (KGS)</Th>
+                  {!isDataEntry && <Th className="text-right">USD Rate</Th>}
                   {!isDataEntry && <Th className="text-right">Net Rate (PKR/kg)</Th>}
+                  {!isDataEntry && <Th className="text-right">Freight Amount (PKR)</Th>}
+                  {!isDataEntry && <Th className="text-right">CASS Rate (USD/kg)</Th>}
+                  {!isDataEntry && <Th className="text-right">CASS Freight Total (PKR)</Th>}
+                  {!isDataEntry && <Th>Clearing Agent</Th>}
+                  {!isDataEntry && <Th className="text-right">Clearing Charges (PKR)</Th>}
+                  {!isDataEntry && <Th className="text-right">IDC Tax (PKR)</Th>}
+                  {!isDataEntry && <Th className="text-right">Other Charges (PKR)</Th>}
+                  {!isDataEntry && <Th className="text-right">AWB Fixed Fee (PKR)</Th>}
+                  {!isDataEntry && <Th>Sales Agent</Th>}
+                  {!isDataEntry && <Th className="text-right">SA Commission (PKR/kg)</Th>}
+                  {!isDataEntry && <Th className="text-right">SA Commission Amt (PKR)</Th>}
+                  {!isDataEntry && <Th>Form E Supplier</Th>}
+                  {!isDataEntry && <Th className="text-right">Form E USD Value</Th>}
+                  {!isDataEntry && <Th className="text-right">Form E Rate Receivable</Th>}
+                  {!isDataEntry && <Th className="text-right">Form E Rate Payable</Th>}
+                  {!isDataEntry && <Th className="text-right">Form E Amount (PKR)</Th>}
                   {!isDataEntry && <Th className="text-right">Total Receivable (PKR)</Th>}
                   <Th>Status</Th>
+                  <Th>Notes</Th>
                   <Th>Actions</Th>
                 </tr>
               </Thead>
               <Tbody>
-                {filtered.map((s) => (
+                {filtered.map((s) => {
+                  const saCommissionAmt = Number(s.chargeable_weight || 0) * Number(s.sales_agent_commission_per_kg || 0)
+                  return (
                   <Tr key={s.id} className={STATUS_ROW[s.status] ?? ''}>
                     <Td>
                       <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggleRow(s.id)}
                         className="w-4 h-4 accent-navy cursor-pointer" />
                     </Td>
-                    <Td className="whitespace-nowrap">{fmtDate(s.flight_date)}</Td>
-                    <Td>
-                      <span className="font-mono font-semibold text-navy">{s.awb_number}</span>
-                    </Td>
-                    <Td>{s.airlines?.name ?? '—'}</Td>
-                    <Td>{s.clients?.name ?? '—'}</Td>
-                    <Td>
-                      <span className="font-mono text-xs tracking-wider">
-                        {s.origin} → {s.destination}
-                      </span>
-                    </Td>
-                    <Td className="text-right font-mono text-sm whitespace-nowrap">
-                      {s.pieces} / {Number(s.chargeable_weight || 0).toFixed(3)}
-                    </Td>
-                    {!isDataEntry && <Td className="text-right font-mono">PKR {fmt(s.net_rate)}</Td>}
+                    <EditableCell type="date" value={s.flight_date}
+                      display={<span className="whitespace-nowrap">{fmtDate(s.flight_date)}</span>}
+                      onSave={(v) => updateField(s.id, 'flight_date', v)} />
+                    <EditableCell type="text" value={s.awb_number}
+                      display={<span className="font-mono font-semibold text-navy">{s.awb_number}</span>}
+                      onSave={(v) => updateField(s.id, 'awb_number', v)} />
+                    <EditableCell type="select" value={s.airline_id} options={airlineOptions}
+                      display={s.airlines?.name ?? '—'}
+                      onSave={(v) => updateField(s.id, 'airline_id', v)} />
+                    <EditableCell type="select" value={s.client_id} options={clientOptions}
+                      display={s.clients?.name ?? '—'}
+                      onSave={(v) => updateField(s.id, 'client_id', v)} />
+                    <EditableCell type="select" value={s.origin} options={originOptions}
+                      display={<span className="font-mono text-xs tracking-wider">{s.origin}</span>}
+                      onSave={(v) => updateField(s.id, 'origin', v)} />
+                    <EditableCell type="select" value={s.destination} options={destinationOptions}
+                      display={<span className="font-mono text-xs tracking-wider">{s.destination}</span>}
+                      onSave={(v) => updateField(s.id, 'destination', v)} />
+                    <EditableCell type="number" align="right" value={s.pieces} display={s.pieces}
+                      onSave={(v) => updateField(s.id, 'pieces', v)} />
+                    <EditableCell type="number" step="0.001" align="right" value={s.chargeable_weight}
+                      display={Number(s.chargeable_weight || 0).toFixed(3)}
+                      onSave={(v) => updateField(s.id, 'chargeable_weight', v)} />
                     {!isDataEntry && (
-                      <Td className="text-right font-mono font-semibold text-gray-800 whitespace-nowrap">
-                        PKR {fmt(s.total_receivable)}
-                      </Td>
+                      <EditableCell type="number" step="0.01" align="right" value={s.pkr_exchange_rate}
+                        display={fmt(s.pkr_exchange_rate)}
+                        onSave={(v) => updateField(s.id, 'pkr_exchange_rate', v)} />
                     )}
-                    <Td>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${STATUS_BADGE[s.status] ?? ''}`}>
-                        {s.status}
-                      </span>
-                    </Td>
+                    {!isDataEntry && (
+                      <EditableCell type="number" step="0.0001" align="right" value={s.net_rate}
+                        display={fmt(s.net_rate)}
+                        onSave={(v) => updateField(s.id, 'net_rate', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell disabled align="right" display={`PKR ${fmt(s.freight_amount)}`} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell type="number" step="0.0001" align="right" value={s.cass_airline_rate}
+                        display={fmtRate(s.cass_airline_rate)}
+                        onSave={(v) => updateField(s.id, 'cass_airline_rate', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell disabled align="right" display={`PKR ${fmt(s.cass_freight_total)}`} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell type="select" value={s.clearing_agent_id} options={clearingAgentOptions}
+                        display={s.clearing_agents?.name ?? '—'}
+                        onSave={(v) => updateField(s.id, 'clearing_agent_id', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell type="number" step="0.01" align="right" value={s.clearing_charges}
+                        display={fmt(s.clearing_charges)}
+                        onSave={(v) => updateField(s.id, 'clearing_charges', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell type="number" step="0.01" align="right" value={s.idc_tax}
+                        display={fmt(s.idc_tax)}
+                        onSave={(v) => updateField(s.id, 'idc_tax', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell type="number" step="0.01" align="right" value={s.other_charges_due_airline}
+                        display={fmt(s.other_charges_due_airline)}
+                        onSave={(v) => updateField(s.id, 'other_charges_due_airline', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell type="number" step="0.01" align="right" value={s.awb_fixed_fee}
+                        display={fmt(s.awb_fixed_fee)}
+                        onSave={(v) => updateField(s.id, 'awb_fixed_fee', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell type="select" value={s.sales_agent_id} options={salesAgentOptions}
+                        display={s.sales_agents?.name ?? '—'}
+                        onSave={(v) => updateField(s.id, 'sales_agent_id', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell type="number" step="0.01" align="right" value={s.sales_agent_commission_per_kg}
+                        display={fmt(s.sales_agent_commission_per_kg)}
+                        onSave={(v) => updateField(s.id, 'sales_agent_commission_per_kg', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell disabled align="right" display={fmt(saCommissionAmt)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell type="select" value={s.form_e_supplier_id} options={formESupplierOptions}
+                        display={s.form_e_suppliers?.name ?? '—'}
+                        onSave={(v) => updateField(s.id, 'form_e_supplier_id', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell type="number" step="0.01" align="right" value={s.form_e_usd_value}
+                        display={fmt(s.form_e_usd_value)}
+                        onSave={(v) => updateField(s.id, 'form_e_usd_value', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell type="number" step="0.01" align="right" value={s.form_e_pkr_rate}
+                        display={fmt(s.form_e_pkr_rate)}
+                        onSave={(v) => updateField(s.id, 'form_e_pkr_rate', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell type="number" step="0.01" align="right" value={s.form_e_pkr_rate_payable}
+                        display={fmt(s.form_e_pkr_rate_payable)}
+                        onSave={(v) => updateField(s.id, 'form_e_pkr_rate_payable', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell disabled align="right" display={`PKR ${fmt(s.form_e_amount_pkr)}`} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell disabled align="right"
+                        display={<span className="font-semibold text-gray-800">PKR {fmt(s.total_receivable)}</span>} />
+                    )}
+                    <EditableCell type="select" value={s.status} options={statusOptions}
+                      display={
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${STATUS_BADGE[s.status] ?? ''}`}>
+                          {s.status}
+                        </span>
+                      }
+                      onSave={(v) => updateField(s.id, 'status', v)} />
+                    <EditableCell type="text" value={s.notes ?? ''} display={s.notes || '—'}
+                      onSave={(v) => updateField(s.id, 'notes', v)} />
                     <Td>
                       <div className="flex gap-1">
                         <button title="Edit"
@@ -506,25 +747,28 @@ export default function Shipments() {
                       </div>
                     </Td>
                   </Tr>
-                ))}
+                  )
+                })}
               </Tbody>
               <Tfoot>
                 <tr>
                   <td />
-                  <Td colSpan={5} className="text-xs text-gray-500">
+                  <Td className="text-xs text-gray-500 whitespace-nowrap">
                     {totals.count} shipment{totals.count !== 1 ? 's' : ''}
                     {hasFilters ? ' (filtered)' : ''}
                   </Td>
+                  {/* AWB, Airline, Client, Origin, Destination, Pieces */}
+                  <Td /><Td /><Td /><Td /><Td /><Td />
                   <Td className="text-right font-mono font-semibold">
-                    {Number(totals.totalWeight).toFixed(3)} KGS
+                    {Number(totals.totalWeight).toFixed(3)}
                   </Td>
-                  {!isDataEntry && <Td />}
+                  {!isDataEntry && Array.from({ length: 18 }).map((_, i) => <Td key={i} />)}
                   {!isDataEntry && (
                     <Td className="text-right font-mono font-semibold text-navy whitespace-nowrap">
                       PKR {fmt(totals.totalReceivable)}
                     </Td>
                   )}
-                  <Td colSpan={2} />
+                  <Td /><Td /><Td />
                 </tr>
               </Tfoot>
             </Table>

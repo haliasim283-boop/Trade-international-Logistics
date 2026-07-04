@@ -172,7 +172,6 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
       ${recap.isPia && recap.totalWHT > 0 ? `<tr class="wht-row"><td class="recap-sub">&nbsp;&nbsp;WHT @ ${settings?.cass_wht_rate ?? 12}% of Profit</td><td>+${fmt(recap.totalWHT)}</td></tr>` : ''}
       ${adjustments.map((a) => `<tr><td class="recap-sub">&nbsp;&nbsp;${a.description}</td><td class="${Number(a.amount) < 0 ? 'credit' : ''}">${Number(a.amount) >= 0 ? '+' : ''}${fmt(a.amount)}</td></tr>`).join('')}
       <tr class="recap-total"><td>Net Due Export</td><td>PKR ${fmt(recap.netDueExport)}</td></tr>
-      <tr class="bta-row"><td>Net Due DIP (BTA: ${fmt(airline?.bta_rate_per_awb ?? 0)} &times; ${recap.awbCount} AWBs)</td><td>PKR ${fmt(recap.bta)}</td></tr>
       <tr class="grand"><td>GRAND TOTAL PAYABLE</td><td>PKR ${fmt(recap.grandTotal)}</td></tr>
     </table>
   </div>

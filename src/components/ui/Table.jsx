@@ -40,9 +40,9 @@ export function Tr({ children, className = '' }) {
   )
 }
 
-export function Td({ children, className = '' }) {
+export function Td({ children, className = '', ...props }) {
   return (
-    <td className={`px-4 py-2.5 text-gray-700 ${className}`}>
+    <td className={`px-4 py-2.5 text-gray-700 ${className}`} {...props}>
       {children}
     </td>
   )
