@@ -573,6 +573,7 @@ export default function Shipments() {
                       className="w-4 h-4 accent-navy cursor-pointer" />
                   </Th>
                   <Th>Date</Th>
+                  <Th>Actions</Th>
                   <Th>AWB Number</Th>
                   <Th>Airline</Th>
                   <Th>Client</Th>
@@ -601,7 +602,6 @@ export default function Shipments() {
                   {!isDataEntry && <Th className="text-right">Total Receivable (PKR)</Th>}
                   <Th>Status</Th>
                   <Th>Notes</Th>
-                  <Th>Actions</Th>
                 </tr>
               </Thead>
               <Tbody>
@@ -616,14 +616,35 @@ export default function Shipments() {
                     <EditableCell type="date" value={s.flight_date}
                       display={<span className="whitespace-nowrap">{fmtDate(s.flight_date)}</span>}
                       onSave={(v) => updateField(s.id, 'flight_date', v)} />
+                    <Td>
+                      <div className="flex gap-1">
+                        <button title="Edit"
+                          onClick={() => setFormModal({ mode: 'edit', shipment: s })}
+                          className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-navy transition-colors">
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button title="Delete"
+                          onClick={() => setDeleteId(s.id)}
+                          className="p-1.5 rounded hover:bg-red-50 text-gray-500 hover:text-danger transition-colors">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                        {!isDataEntry && (
+                          <button title="Generate Invoice"
+                            onClick={() => navigate('/invoices', { state: { shipmentId: s.id } })}
+                            className="p-1.5 rounded hover:bg-blue-50 text-gray-500 hover:text-accent transition-colors">
+                            <FileText className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </Td>
                     <EditableCell type="text" value={s.awb_number}
-                      display={<span className="font-mono font-semibold text-navy">{s.awb_number}</span>}
+                      display={<span className="font-mono font-semibold text-navy whitespace-nowrap">{s.awb_number}</span>}
                       onSave={(v) => updateField(s.id, 'awb_number', v)} />
                     <EditableCell type="select" value={s.airline_id} options={airlineOptions}
-                      display={s.airlines?.name ?? '—'}
+                      display={<span className="whitespace-nowrap">{s.airlines?.name ?? '—'}</span>}
                       onSave={(v) => updateField(s.id, 'airline_id', v)} />
                     <EditableCell type="select" value={s.client_id} options={clientOptions}
-                      display={s.clients?.name ?? '—'}
+                      display={<span className="whitespace-nowrap">{s.clients?.name ?? '—'}</span>}
                       onSave={(v) => updateField(s.id, 'client_id', v)} />
                     <EditableCell type="select" value={s.origin} options={originOptions}
                       display={<span className="font-mono text-xs tracking-wider">{s.origin}</span>}
@@ -659,7 +680,7 @@ export default function Shipments() {
                     )}
                     {!isDataEntry && (
                       <EditableCell type="select" value={s.clearing_agent_id} options={clearingAgentOptions}
-                        display={s.clearing_agents?.name ?? '—'}
+                        display={<span className="whitespace-nowrap">{s.clearing_agents?.name ?? '—'}</span>}
                         onSave={(v) => updateField(s.id, 'clearing_agent_id', v)} />
                     )}
                     {!isDataEntry && (
@@ -684,7 +705,7 @@ export default function Shipments() {
                     )}
                     {!isDataEntry && (
                       <EditableCell type="select" value={s.sales_agent_id} options={salesAgentOptions}
-                        display={s.sales_agents?.name ?? '—'}
+                        display={<span className="whitespace-nowrap">{s.sales_agents?.name ?? '—'}</span>}
                         onSave={(v) => updateField(s.id, 'sales_agent_id', v)} />
                     )}
                     {!isDataEntry && (
@@ -697,7 +718,7 @@ export default function Shipments() {
                     )}
                     {!isDataEntry && (
                       <EditableCell type="select" value={s.form_e_supplier_id} options={formESupplierOptions}
-                        display={s.form_e_suppliers?.name ?? '—'}
+                        display={<span className="whitespace-nowrap">{s.form_e_suppliers?.name ?? '—'}</span>}
                         onSave={(v) => updateField(s.id, 'form_e_supplier_id', v)} />
                     )}
                     {!isDataEntry && (
@@ -731,27 +752,6 @@ export default function Shipments() {
                       onSave={(v) => updateField(s.id, 'status', v)} />
                     <EditableCell type="text" value={s.notes ?? ''} display={s.notes || '—'}
                       onSave={(v) => updateField(s.id, 'notes', v)} />
-                    <Td>
-                      <div className="flex gap-1">
-                        <button title="Edit"
-                          onClick={() => setFormModal({ mode: 'edit', shipment: s })}
-                          className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-navy transition-colors">
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button title="Delete"
-                          onClick={() => setDeleteId(s.id)}
-                          className="p-1.5 rounded hover:bg-red-50 text-gray-500 hover:text-danger transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                        {!isDataEntry && (
-                          <button title="Generate Invoice"
-                            onClick={() => navigate('/invoices', { state: { shipmentId: s.id } })}
-                            className="p-1.5 rounded hover:bg-blue-50 text-gray-500 hover:text-accent transition-colors">
-                            <FileText className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </Td>
                   </Tr>
                   )
                 })}
@@ -763,8 +763,8 @@ export default function Shipments() {
                     {totals.count} shipment{totals.count !== 1 ? 's' : ''}
                     {hasFilters ? ' (filtered)' : ''}
                   </Td>
-                  {/* AWB, Airline, Client, Origin, Destination, Pieces */}
-                  <Td /><Td /><Td /><Td /><Td /><Td />
+                  {/* Actions, AWB, Airline, Client, Origin, Destination, Pieces */}
+                  <Td /><Td /><Td /><Td /><Td /><Td /><Td />
                   <Td className="text-right font-mono font-semibold">
                     {Number(totals.totalWeight).toFixed(3)}
                   </Td>
@@ -774,7 +774,7 @@ export default function Shipments() {
                       PKR {fmt(totals.totalReceivable)}
                     </Td>
                   )}
-                  <Td /><Td /><Td />
+                  <Td /><Td />
                 </tr>
               </Tfoot>
             </Table>

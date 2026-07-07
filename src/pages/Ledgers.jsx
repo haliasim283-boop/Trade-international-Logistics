@@ -7,7 +7,7 @@ import { Button } from '../components/ui/Button'
 import { Spinner } from '../components/ui/Spinner'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { PaymentModal } from '../components/ledger/PaymentModal'
-import { LedgerPrintView } from '../components/ledger/LedgerPrintView'
+import { LedgerPrintView, buildPrintHTML } from '../components/ledger/LedgerPrintView'
 import { useAuth } from '../contexts/AuthContext'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -129,6 +129,68 @@ function exportCSV(entries, clientName) {
   URL.revokeObjectURL(url)
 }
 
+// ── PDF statement export (same layout/colors as Print Statement) ────────────
+
+function statementFileName(clientName) {
+  return `Statement-${clientName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.pdf`
+}
+
+async function buildStatementPdf(entries, client, summary, dateLabel) {
+  const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+    import('html2canvas'),
+    import('jspdf'),
+  ])
+
+  const html = buildPrintHTML(entries, client, summary, dateLabel)
+
+  const PAGE_PX_WIDTH = 1123 // A4 landscape @ 96dpi
+  const iframe = document.createElement('iframe')
+  iframe.style.cssText = `position:fixed;left:-9999px;top:0;width:${PAGE_PX_WIDTH}px;height:1px;border:none;`
+  document.body.appendChild(iframe)
+
+  await new Promise((resolve) => {
+    iframe.onload = resolve
+    iframe.contentDocument.open()
+    iframe.contentDocument.write(html)
+    iframe.contentDocument.close()
+  })
+
+  await new Promise((r) => setTimeout(r, 400))
+
+  const body = iframe.contentDocument.body
+  const contentHeight = body.scrollHeight
+  iframe.style.height = contentHeight + 'px'
+
+  const canvas = await html2canvas(body, {
+    scale: 2,
+    useCORS: true,
+    allowTaint: true,
+    width: PAGE_PX_WIDTH,
+    height: contentHeight,
+  })
+
+  document.body.removeChild(iframe)
+
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
+  const pageW = pdf.internal.pageSize.getWidth()
+  const pageH = pdf.internal.pageSize.getHeight()
+  const imgH = (canvas.height * pageW) / canvas.width
+  const imgData = canvas.toDataURL('image/jpeg', 0.97)
+
+  let remaining = imgH
+  let yOffset = 0
+  pdf.addImage(imgData, 'JPEG', 0, yOffset, pageW, imgH)
+  remaining -= pageH
+  while (remaining > 0) {
+    yOffset -= pageH
+    pdf.addPage()
+    pdf.addImage(imgData, 'JPEG', 0, yOffset, pageW, imgH)
+    remaining -= pageH
+  }
+
+  return pdf
+}
+
 // ── Fortnight periods (same logic as CASS / Master Shipment Log) ─────────────
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -175,6 +237,7 @@ export default function Ledgers() {
   const [editPayment,  setEditPayment]  = useState(null)
   const [printView,    setPrintView]    = useState(false)
   const [deletePayId,  setDeletePayId]  = useState(null)
+  const [sendBusy,     setSendBusy]     = useState(false)
 
   // ── Filters ──
   const [filterFrom, setFilterFrom] = useState('')
@@ -347,6 +410,20 @@ export default function Ledgers() {
     ? `${filterFrom ? fmtDate(filterFrom) : 'Start'} — ${filterTo ? fmtDate(filterTo) : 'Today'}`
     : 'All Dates'
 
+  // ── PDF export / send ──────────────────────────────────────────────────────
+
+  async function handleDownloadStatementPDF() {
+    setSendBusy(true)
+    try {
+      const pdf = await buildStatementPdf(displayEntries, client, summary, dateLabel)
+      pdf.save(statementFileName(client.name))
+    } catch (err) {
+      alert('Could not generate the PDF: ' + err.message)
+    } finally {
+      setSendBusy(false)
+    }
+  }
+
   // ── Style helpers ─────────────────────────────────────────────────────────
 
   const INP_F = 'border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent bg-white'
@@ -500,6 +577,15 @@ export default function Ledgers() {
                     <Button variant="ghost" size="sm" onClick={() => setPrintView(true)}>
                       <Printer className="w-4 h-4" />Print Statement
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={sendBusy || !client}
+                      onClick={handleDownloadStatementPDF}
+                    >
+                      <Download className="w-4 h-4" />Export PDF
+                    </Button>
+
                     <Button size="sm" variant="success" onClick={() => setPaymentModal(true)}>
                       <Plus className="w-4 h-4" />Record Payment
                     </Button>

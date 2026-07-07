@@ -14,7 +14,7 @@ function fmtDate(s) {
 
 // ── HTML builder (new print window) ──────────────────────────────────────────
 
-function buildPrintHTML(entries, client, summary, dateLabel) {
+export function buildPrintHTML(entries, client, summary, dateLabel) {
   const rows = entries.map((e) => {
     if (e.type === 'opening' || e.type === 'carry-forward') {
       return `
@@ -100,7 +100,7 @@ function buildPrintHTML(entries, client, summary, dateLabel) {
 <body>
   <div class="header">
     <div>
-      <div class="company-name">Trade International Clearing Agency</div>
+      <div class="company-name">Trade International Logistics</div>
       <div class="company-addr">
         Room No. 4, 1st Floor, Khair Mohammad Plaza, Opp. State Bank of Pakistan<br>
         8-A Saddar Road, Peshawar Cantt, Pakistan &nbsp;|&nbsp; IATA: 27-3 0688/0005
@@ -201,7 +201,7 @@ export function LedgerPrintView({ entries, client, summary, dateLabel, onClose }
         <div style={{ backgroundColor: '#1a2744', color: 'white', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Trade International Clearing Agency
+              Trade International Logistics
             </div>
             <div style={{ fontSize: 9, marginTop: 4, opacity: 0.85, lineHeight: 1.6 }}>
               Room No. 4, 1st Floor, Khair Mohammad Plaza, Opp. State Bank of Pakistan<br />
