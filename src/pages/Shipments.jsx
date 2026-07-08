@@ -392,6 +392,17 @@ export default function Shipments() {
 
   async function handleSave(payload) {
     setSaving(true)
+
+    let dupQuery = supabase.from('shipments').select('id').eq('awb_number', payload.awb_number)
+    if (formModal.mode === 'edit') dupQuery = dupQuery.neq('id', formModal.shipment.id)
+    const { data: dupRows, error: dupErr } = await dupQuery.limit(1)
+    if (dupErr) { setSaving(false); alert(dupErr.message); return }
+    if (dupRows && dupRows.length > 0) {
+      setSaving(false)
+      alert('AWB number already exists in shipment')
+      return
+    }
+
     const { error } = formModal.mode === 'add'
       ? await supabase.from('shipments').insert(payload)
       : await supabase.from('shipments').update(payload).eq('id', formModal.shipment.id)
@@ -442,24 +453,24 @@ export default function Shipments() {
 
   return (
     <>
-      <div className="p-6 space-y-5">
+      <div className="p-4 sm:p-6 space-y-5">
 
         {/* Page header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-navy tracking-tight">Master Shipment Log</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-navy tracking-tight">Master Shipment Log</h1>
             <p className="text-sm text-gray-500 mt-0.5">All shipments — the source of truth for all reports.</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {!isDataEntry && (
-              <Button variant="secondary" onClick={() => exportCSV(filtered)}>
+              <Button size="sm" className="sm:text-sm sm:px-4 sm:py-2" variant="secondary" onClick={() => exportCSV(filtered)}>
                 <Download className="w-4 h-4" />Export CSV
               </Button>
             )}
-            <Button variant="secondary" onClick={() => setShowImport(true)}>
+            <Button size="sm" className="sm:text-sm sm:px-4 sm:py-2" variant="secondary" onClick={() => setShowImport(true)}>
               <Upload className="w-4 h-4" />Import Excel
             </Button>
-            <Button onClick={() => setFormModal({ mode: 'add' })}>
+            <Button size="sm" className="sm:text-sm sm:px-4 sm:py-2" onClick={() => setFormModal({ mode: 'add' })}>
               <Plus className="w-4 h-4" />Add Shipment
             </Button>
           </div>
@@ -525,11 +536,11 @@ export default function Shipments() {
 
         {/* Bulk action bar */}
         {selected.size > 0 && (
-          <div className="bg-accent/10 border border-accent/30 rounded-lg px-4 py-2.5 flex items-center gap-4">
+          <div className="bg-accent/10 border border-accent/30 rounded-lg px-4 py-2.5 flex flex-wrap items-center gap-2 sm:gap-4">
             <span className="text-sm font-medium text-accent">
               {selected.size} shipment{selected.size !== 1 ? 's' : ''} selected
             </span>
-            <span className="text-gray-300">|</span>
+            <span className="text-gray-300 hidden sm:inline">|</span>
             <span className="text-sm text-gray-600">Mark as</span>
             <select className={INP_F + ' py-1'} value={bulkStatus}
               onChange={(e) => setBulkStatus(e.target.value)}>
@@ -538,7 +549,7 @@ export default function Shipments() {
             <Button size="sm" onClick={handleBulkStatus} disabled={saving}>
               {saving && <Spinner size="sm" />}Apply
             </Button>
-            <span className="text-gray-300">|</span>
+            <span className="text-gray-300 hidden sm:inline">|</span>
             <Button size="sm" variant="danger" onClick={() => setBulkDeleting(true)} disabled={saving}>
               <Trash2 className="w-4 h-4" />Delete selected
             </Button>

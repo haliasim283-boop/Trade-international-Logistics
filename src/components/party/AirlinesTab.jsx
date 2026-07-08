@@ -24,7 +24,6 @@ function num(n) { return Number(n).toLocaleString('en-PK', { minimumFractionDigi
 
 const EMPTY = {
   name: '', iata_prefix: '',
-  other_charges_self_upload: 0, awb_airline_upload_charges: 0,
   bta_rate_per_awb: 0, default_cass_rate_notes: '',
 }
 
@@ -54,8 +53,6 @@ export function AirlinesTab() {
   function openEdit(r) {
     setForm({
       name: r.name, iata_prefix: r.iata_prefix,
-      other_charges_self_upload: r.other_charges_self_upload ?? 0,
-      awb_airline_upload_charges: r.awb_airline_upload_charges ?? 0,
       bta_rate_per_awb: r.bta_rate_per_awb,
       default_cass_rate_notes: r.default_cass_rate_notes ?? '',
     })
@@ -104,8 +101,6 @@ export function AirlinesTab() {
           <Thead>
             <tr>
               <Th>Airline Name</Th><Th>Prefix</Th>
-              <Th className="text-right">Self-Upload Chgs (USD)</Th>
-              <Th className="text-right">AWB Upload Chgs (USD)</Th>
               <Th className="text-right">BTA / AWB</Th>
               <Th>Actions</Th>
             </tr>
@@ -119,8 +114,6 @@ export function AirlinesTab() {
                     {r.iata_prefix}
                   </span>
                 </Td>
-                <Td className="font-mono text-right text-gray-700">USD {num(r.other_charges_self_upload ?? 0)}</Td>
-                <Td className="font-mono text-right text-gray-700">USD {num(r.awb_airline_upload_charges ?? 0)}</Td>
                 <Td className="font-mono text-right text-gray-700">PKR {num(r.bta_rate_per_awb)}</Td>
                 <Td>
                   <div className="flex gap-1">
@@ -155,16 +148,6 @@ export function AirlinesTab() {
               <Field label="IATA Prefix (3-digit numeric)" required>
                 <input className={INP} value={form.iata_prefix} maxLength={3} onChange={setF('iata_prefix')}
                   placeholder="e.g. 176" />
-              </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Self-Upload Charges (USD)">
-                <input type="number" step="0.01" min="0" className={INP}
-                  value={form.other_charges_self_upload} onChange={setN('other_charges_self_upload')} />
-              </Field>
-              <Field label="Airline Upload Charges (USD)">
-                <input type="number" step="0.01" min="0" className={INP}
-                  value={form.awb_airline_upload_charges} onChange={setN('awb_airline_upload_charges')} />
               </Field>
             </div>
             <Field label="BTA Rate per AWB (PKR)">

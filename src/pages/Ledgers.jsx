@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Download, Printer, Plus, Trash2, AlertTriangle, Pencil } from 'lucide-react'
+import { Download, Plus, Trash2, AlertTriangle, Pencil, Upload } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { Card, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Spinner } from '../components/ui/Spinner'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { PaymentModal } from '../components/ledger/PaymentModal'
-import { LedgerPrintView, buildPrintHTML } from '../components/ledger/LedgerPrintView'
+import { LedgerImportModal } from '../components/ledger/LedgerImportModal'
+import { buildPrintHTML } from '../components/ledger/LedgerPrintView'
 import { useAuth } from '../contexts/AuthContext'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -235,9 +236,9 @@ export default function Ledgers() {
   // ── Modal state ──
   const [paymentModal, setPaymentModal] = useState(false)
   const [editPayment,  setEditPayment]  = useState(null)
-  const [printView,    setPrintView]    = useState(false)
   const [deletePayId,  setDeletePayId]  = useState(null)
   const [sendBusy,     setSendBusy]     = useState(false)
+  const [importModal,  setImportModal]  = useState(false)
 
   // ── Filters ──
   const [filterFrom, setFilterFrom] = useState('')
@@ -574,9 +575,6 @@ export default function Ledgers() {
                     >
                       <Download className="w-4 h-4" />Export CSV
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setPrintView(true)}>
-                      <Printer className="w-4 h-4" />Print Statement
-                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -588,6 +586,9 @@ export default function Ledgers() {
 
                     <Button size="sm" variant="success" onClick={() => setPaymentModal(true)}>
                       <Plus className="w-4 h-4" />Record Payment
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setImportModal(true)}>
+                      <Upload className="w-4 h-4" />Import Ledger Sheet
                     </Button>
                   </div>
                 </>
@@ -815,14 +816,13 @@ export default function Ledgers() {
         />
       )}
 
-      {/* Print / statement view */}
-      {printView && client && (
-        <LedgerPrintView
-          entries={displayEntries}
-          client={client}
-          summary={summary}
-          dateLabel={dateLabel}
-          onClose={() => setPrintView(false)}
+      {/* Import ledger sheet modal */}
+      {importModal && client && (
+        <LedgerImportModal
+          clientId={selClientId}
+          clientName={client.name}
+          onImported={() => loadLedger(selClientId)}
+          onClose={() => setImportModal(false)}
         />
       )}
 

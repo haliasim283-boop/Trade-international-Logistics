@@ -224,7 +224,11 @@ export default function Invoices() {
       remaining -= pageH
     }
 
-    pdf.save(`Invoice-${inv.invoice_number}.pdf`)
+    const invNum = String(inv.invoice_number ?? '').replace(/^0+(?=\d)/, '')
+    const fileName = inv.awb_number
+      ? `INV_${invNum}-AWB_${inv.awb_number}.pdf`
+      : `INV_${invNum}.pdf`
+    pdf.save(fileName)
   }
 
   function handleDuplicate(inv) {

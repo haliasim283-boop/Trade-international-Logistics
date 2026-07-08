@@ -8,8 +8,12 @@ import { supabase } from '../../lib/supabase'
 
 // ── Excel Parser ──────────────────────────────────────────────────────────────
 
+// NOTE: intentionally NOT using cellDates:true — SheetJS's own Excel-serial-to-
+// Date conversion is timezone-dependent internally and silently rolls dates
+// back a day in timezones ahead of UTC. Reading raw numeric serials and
+// converting them ourselves (see excelSerialToUTCDate below) is reliable.
 function readExcel(buffer) {
-  const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
+  const wb = XLSX.read(buffer, { type: 'array' })
   const ws = wb.Sheets[wb.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
   // Filter out completely empty rows
@@ -58,22 +62,37 @@ function parseCSV(text) {
 const MONTHS = {
   january:'01', february:'02', march:'03', april:'04', may:'05', june:'06',
   july:'07', august:'08', september:'09', october:'10', november:'11', december:'12',
+  jan:'01', feb:'02', mar:'03', apr:'04', jun:'06',
+  jul:'07', aug:'08', sep:'09', sept:'09', oct:'10', nov:'11', dec:'12',
+}
+
+// Excel's date serial is days since 1899-12-30. Converting it via SheetJS's
+// own Date-object machinery (cellDates:true) is timezone-dependent and can
+// silently roll the date back a day — so we convert the raw serial ourselves.
+function excelSerialToUTCDate(serial) {
+  const utcDays = Math.floor(serial) - 25569 // 25569 = days between 1899-12-30 and the 1970-01-01 UNIX epoch
+  return new Date(utcDays * 86400 * 1000)
 }
 
 function parseDate(s) {
-  if (!s) return null
-  // Excel Date object (from SheetJS cellDates:true)
+  if (s === null || s === undefined || s === '') return null
+  if (typeof s === 'number' && s > 1000) {
+    const d = excelSerialToUTCDate(s)
+    const y = d.getUTCFullYear(), m = String(d.getUTCMonth() + 1).padStart(2, '0'), day = String(d.getUTCDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+  // Fallback: Date object (shouldn't normally occur since cellDates isn't used, kept for safety)
   if (s instanceof Date && !isNaN(s)) {
-    const y = s.getFullYear()
-    const m = String(s.getMonth() + 1).padStart(2, '0')
-    const d = String(s.getDate()).padStart(2, '0')
+    const y = s.getUTCFullYear()
+    const m = String(s.getUTCMonth() + 1).padStart(2, '0')
+    const d = String(s.getUTCDate()).padStart(2, '0')
     return `${y}-${m}-${d}`
   }
   const str = String(s)
   // Already YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str
-  // "Sunday, 28 December 2025" or "28 December 2025"
-  const match = str.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/)
+  // "Sunday, 28 December 2025", "28 December 2025", or "5-Jun-2026"
+  const match = str.match(/(\d{1,2})[\s-]+([A-Za-z]+)[\s-]+(\d{4})/)
   if (!match) return null
   const [, day, month, year] = match
   const m = MONTHS[month.toLowerCase()]

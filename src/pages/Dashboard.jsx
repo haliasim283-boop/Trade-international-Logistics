@@ -47,11 +47,11 @@ function KPICard({ label, value, sub, color, onClick }) {
   }
   const s = styles[color] ?? styles.blue
   return (
-    <div className={`border rounded-xl p-5 cursor-pointer hover:shadow-md transition-shadow ${s.wrap}`}
+    <div className={`border rounded-xl p-3 sm:p-5 cursor-pointer hover:shadow-md transition-shadow ${s.wrap}`}
       onClick={onClick} role="button" tabIndex={0}
       onKeyDown={(e) => e.key === 'Enter' && onClick?.()}>
-      <p className={`text-xs font-semibold uppercase tracking-wide mb-1 ${s.lbl} opacity-70`}>{label}</p>
-      <p className={`font-mono font-bold text-2xl leading-tight ${s.val}`}>PKR {fmt(value)}</p>
+      <p className={`text-[11px] sm:text-xs font-semibold uppercase tracking-wide mb-1 ${s.lbl} opacity-70`}>{label}</p>
+      <p className={`font-mono font-bold text-base sm:text-2xl leading-tight break-all ${s.val}`}>PKR {fmt(value)}</p>
       <p className="text-xs text-gray-400 mt-1.5">{sub}</p>
     </div>
   )
@@ -61,9 +61,9 @@ function KPICard({ label, value, sub, color, onClick }) {
 
 function StatusTile({ status, count, color }) {
   return (
-    <div className={`rounded-lg p-4 text-center ${color}`}>
-      <p className="text-3xl font-bold leading-none">{count}</p>
-      <p className="text-xs font-medium mt-1.5">{status}</p>
+    <div className={`rounded-lg p-2 sm:p-4 text-center ${color}`}>
+      <p className="text-xl sm:text-3xl font-bold leading-none">{count}</p>
+      <p className="text-[10px] sm:text-xs font-medium mt-1.5">{status}</p>
     </div>
   )
 }
@@ -248,21 +248,21 @@ export default function Dashboard() {
   if (!supabase) return <div className="p-6 text-danger text-sm">Supabase not configured.</div>
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-navy">Dashboard</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-navy">Dashboard</h1>
           <p className="text-sm text-gray-500 mt-0.5">Trade International Logistics — Business Overview</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => navigate('/shipments')}>
+          <Button size="sm" className="sm:text-sm sm:px-4 sm:py-2" onClick={() => navigate('/shipments')}>
             <Plus className="w-4 h-4" /> New Shipment
           </Button>
-          <Button variant="secondary" onClick={() => navigate('/invoices')}>
+          <Button size="sm" className="sm:text-sm sm:px-4 sm:py-2" variant="secondary" onClick={() => navigate('/invoices')}>
             <FileText className="w-4 h-4" /> New Invoice
           </Button>
-          <Button variant="secondary" onClick={() => navigate('/ledgers')}>
+          <Button size="sm" className="sm:text-sm sm:px-4 sm:py-2" variant="secondary" onClick={() => navigate('/ledgers')}>
             <CreditCard className="w-4 h-4" /> Record Payment
           </Button>
         </div>
@@ -275,7 +275,7 @@ export default function Dashboard() {
       ) : (
         <>
           {/* ── KPI Cards ── */}
-          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
             <KPICard
               label="Outstanding Receivables"
               value={kpis?.outstandingReceivables ?? 0}
@@ -324,7 +324,7 @@ export default function Dashboard() {
                   </button>
                 </div>
                 <CardBody className="pt-2">
-                  <div className="grid grid-cols-4 gap-3">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3">
                     {STATUS_TILES.map(({ status, color }) => (
                       <StatusTile key={status} status={status} count={statusCounts[status] ?? 0} color={color} />
                     ))}

@@ -553,6 +553,7 @@ export default function Settings() {
       cass_wht_rate:           settings.cass_wht_rate,
       default_form_e_rate_min:    settings.default_form_e_rate_min,
       default_form_e_rate_max:    settings.default_form_e_rate_max,
+      default_awb_fixed_fee:      settings.default_awb_fixed_fee,
       fixed_usd_pkr_rate:         settings.fixed_usd_pkr_rate ?? null,
       fixed_usd_rate_valid_from:  settings.fixed_usd_rate_valid_from ?? null,
       updated_at:                 new Date().toISOString(),
@@ -764,6 +765,10 @@ export default function Settings() {
                   <Field label="Invoice Overdue Days">
                     <NumberInput step="1" value={settings.invoice_overdue_days}
                       onChange={(e) => setField('invoice_overdue_days', e.target.value)} />
+                  </Field>
+                  <Field label="Default AWB Fixed Fee (PKR)">
+                    <NumberInput step="0.01" value={settings.default_awb_fixed_fee}
+                      onChange={(e) => setField('default_awb_fixed_fee', e.target.value)} />
                   </Field>
                 </div>
 
