@@ -6,10 +6,14 @@ import { useAuth } from '../../contexts/AuthContext'
 export function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
   const { role } = useAuth()
 
-  // Filter nav items to those the current role can access
+  // Filter nav items to those the current role can access.
+  // Fail CLOSED: if the role is unknown (null), hide every restricted item
+  // rather than revealing the full menu.
   const visibleItems = NAV_ITEMS.filter(item => {
     const allowed = ROUTE_ACCESS[item.path]
-    return !role || !allowed || allowed.includes(role)
+    if (!allowed) return true       // unrestricted route
+    if (!role) return false         // unknown role → show nothing restricted
+    return allowed.includes(role)
   })
 
   return (
