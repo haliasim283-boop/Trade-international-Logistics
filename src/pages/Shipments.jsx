@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Plus, Download, Pencil, Trash2, FileText, Upload } from 'lucide-react'
+import { Plus, Download, Pencil, Trash2, FileText, Upload, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -135,6 +135,8 @@ const STATUS_BADGE = {
 
 const STATUSES = ['PNDNG', 'AP-BLZ', 'BKD', 'CNCLD', 'NO SHOW', 'OFFLOADED', 'SHPD', 'EMAILED']
 
+const PAGE_SIZE = 50
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmt(n) {
@@ -217,6 +219,9 @@ export default function Shipments() {
   const [filterFrom,    setFilterFrom]    = useState('')
   const [filterTo,      setFilterTo]      = useState('')
 
+  // ── Pagination state ──
+  const [page, setPage] = useState(1)
+
   // ── Bulk action state ──
   const [selected,    setSelected]    = useState(new Set())
   const [bulkStatus,  setBulkStatus]  = useState('SHPD')
@@ -297,6 +302,16 @@ export default function Shipments() {
     return true
   }), [shipments, search, filterAirline, filterClient, filterStatus, filterOrigin, filterFrom, filterTo])
 
+  // Reset to page 1 whenever the filtered result set changes
+  useEffect(() => { setPage(1) }, [search, filterAirline, filterClient, filterStatus, filterOrigin, filterFrom, filterTo])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const paginated = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return filtered.slice(start, start + PAGE_SIZE)
+  }, [filtered, currentPage])
+
   // ── Fortnight options (derived from loaded dates) ────────────────────────
 
   const fortnights = useMemo(() => {
@@ -330,8 +345,6 @@ export default function Shipments() {
   // ── Summary totals ───────────────────────────────────────────────────────
 
   const totals = useMemo(() => ({
-    count:           filtered.length,
-    totalWeight:     filtered.reduce((s, r) => s + parseFloat(r.chargeable_weight || 0), 0),
     totalReceivable: filtered.reduce((s, r) => s + parseFloat(r.total_receivable || 0), 0),
   }), [filtered])
 
@@ -616,7 +629,7 @@ export default function Shipments() {
                 </tr>
               </Thead>
               <Tbody>
-                {filtered.map((s) => {
+                {paginated.map((s) => {
                   const saCommissionAmt = Number(s.chargeable_weight || 0) * Number(s.sales_agent_commission_per_kg || 0)
                   return (
                   <Tr key={s.id} className={STATUS_ROW[s.status] ?? ''}>
@@ -770,15 +783,10 @@ export default function Shipments() {
               <Tfoot>
                 <tr>
                   <td />
-                  <Td className="text-xs text-gray-500 whitespace-nowrap">
-                    {totals.count} shipment{totals.count !== 1 ? 's' : ''}
-                    {hasFilters ? ' (filtered)' : ''}
-                  </Td>
+                  <Td />
                   {/* Actions, AWB, Airline, Client, Origin, Destination, Pieces */}
                   <Td /><Td /><Td /><Td /><Td /><Td /><Td />
-                  <Td className="text-right font-mono font-semibold">
-                    {Number(totals.totalWeight).toFixed(3)}
-                  </Td>
+                  <Td />
                   {!isDataEntry && Array.from({ length: 18 }).map((_, i) => <Td key={i} />)}
                   {!isDataEntry && (
                     <Td className="text-right font-mono font-semibold text-navy whitespace-nowrap">
@@ -789,6 +797,24 @@ export default function Shipments() {
                 </tr>
               </Tfoot>
             </Table>
+          )}
+          {!loading && !error && filtered.length > 0 && (
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-gray-200 text-sm text-gray-600">
+              <span>
+                Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="secondary" disabled={currentPage <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                  <ChevronLeft className="w-4 h-4" />Previous
+                </Button>
+                <span className="text-xs text-gray-500 whitespace-nowrap">Page {currentPage} of {totalPages}</span>
+                <Button size="sm" variant="secondary" disabled={currentPage >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+                  Next<ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
           )}
         </Card>
       </div>
