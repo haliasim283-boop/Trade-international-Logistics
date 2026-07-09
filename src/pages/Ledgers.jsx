@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button'
 import { Spinner } from '../components/ui/Spinner'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { PaymentModal } from '../components/ledger/PaymentModal'
+import { AdjustmentModal } from '../components/ledger/AdjustmentModal'
 import { LedgerImportModal } from '../components/ledger/LedgerImportModal'
 import { buildPrintHTML } from '../components/ledger/LedgerPrintView'
 import { useAuth } from '../contexts/AuthContext'
@@ -32,7 +33,7 @@ function buildPaymentDesc(p) {
 }
 
 // Build merged + sorted + balanced entry list from raw DB data
-function buildEntries(shipments, payments, opening) {
+function buildEntries(shipments, payments, adjustments, opening) {
   const raw = []
 
   if (opening) {
@@ -83,8 +84,24 @@ function buildEntries(shipments, payments, opening) {
     })
   }
 
-  // Sort ASC by date; within same date: opening first, then shipments, then payments
-  const ORDER = { opening: 0, shipment: 1, payment: 2 }
+  for (const a of (adjustments ?? [])) {
+    raw.push({
+      id:          a.id,
+      type:        a.type, // 'credit' | 'debit'
+      date:        a.entry_date,
+      entry_date:  a.entry_date, // kept for edit-modal prefill
+      amount:      Number(a.amount || 0),
+      description: a.description,
+      notes:       a.notes ?? '',
+      receivable:  a.type === 'credit' ? Number(a.amount || 0) : 0,
+      received:    a.type === 'debit'  ? Number(a.amount || 0) : 0,
+      awb_number: '', origin: '', destination: '', pieces: null,
+      weight: 0, net_rate: 0, clearing: 0, other: 0, form_e: 0,
+    })
+  }
+
+  // Sort ASC by date; within same date: opening first, then shipments, then credits/payments/debits
+  const ORDER = { opening: 0, shipment: 1, credit: 2, payment: 3, debit: 3 }
   raw.sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? -1 : 1
     return (ORDER[a.type] ?? 1) - (ORDER[b.type] ?? 1)
@@ -118,7 +135,7 @@ function exportCSV(entries, clientName) {
     e.receivable > 0 ? e.receivable : '',
     e.received > 0 ? e.received : '',
     e.balance,
-    e.description ?? '',
+    (e.type === 'credit' ? 'CREDIT: ' : e.type === 'debit' ? 'DEBIT: ' : '') + (e.description ?? ''),
   ].map((v) => `"${v}"`).join(','))
 
   const blob = new Blob([[header, ...lines].join('\n')], { type: 'text/csv' })
@@ -234,11 +251,14 @@ export default function Ledgers() {
   const [error,    setError]    = useState(null)
 
   // ── Modal state ──
-  const [paymentModal, setPaymentModal] = useState(false)
-  const [editPayment,  setEditPayment]  = useState(null)
-  const [deletePayId,  setDeletePayId]  = useState(null)
-  const [sendBusy,     setSendBusy]     = useState(false)
-  const [importModal,  setImportModal]  = useState(false)
+  const [paymentModal,    setPaymentModal]    = useState(false)
+  const [editPayment,     setEditPayment]     = useState(null)
+  const [deletePayId,     setDeletePayId]     = useState(null)
+  const [sendBusy,        setSendBusy]        = useState(false)
+  const [importModal,     setImportModal]     = useState(false)
+  const [adjustmentModal, setAdjustmentModal] = useState(null) // null | 'credit' | 'debit'
+  const [editAdjustment,  setEditAdjustment]  = useState(null)
+  const [deleteAdjId,     setDeleteAdjId]     = useState(null)
 
   // ── Filters ──
   const [filterFrom, setFilterFrom] = useState('')
@@ -277,6 +297,7 @@ export default function Ledgers() {
     const [
       { data: sData, error: sErr },
       { data: pData },
+      { data: adjData },
       { data: obData },
       { data: cData },
     ] = await Promise.all([
@@ -293,6 +314,12 @@ export default function Ledgers() {
         .order('payment_date', { ascending: true })
         .order('created_at',   { ascending: true }),
       supabase
+        .from('client_ledger_adjustments')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('entry_date', { ascending: true })
+        .order('created_at', { ascending: true }),
+      supabase
         .from('client_opening_balances')
         .select('*')
         .eq('client_id', clientId)
@@ -306,7 +333,7 @@ export default function Ledgers() {
 
     if (sErr) { setError(sErr.message); setLoading(false); return }
 
-    setEntries(buildEntries(sData ?? [], pData ?? [], obData))
+    setEntries(buildEntries(sData ?? [], pData ?? [], adjData ?? [], obData))
     setClient(cData ?? null)
     setLoading(false)
   }, [])
@@ -402,6 +429,33 @@ export default function Ledgers() {
   async function handleDeletePayment() {
     await supabase.from('client_payments').delete().eq('id', deletePayId)
     setDeletePayId(null)
+    loadLedger(selClientId)
+  }
+
+  // ── Add/edit/delete credit & debit adjustments ────────────────────────────
+
+  async function handleAddAdjustment(payload) {
+    setSaving(true)
+    const { error: err } = await supabase.from('client_ledger_adjustments').insert(payload)
+    setSaving(false)
+    if (err) { alert(err.message); return }
+    setAdjustmentModal(null)
+    loadLedger(selClientId)
+  }
+
+  async function handleUpdateAdjustment(payload) {
+    const { id, ...fields } = payload
+    setSaving(true)
+    const { error: err } = await supabase.from('client_ledger_adjustments').update(fields).eq('id', id)
+    setSaving(false)
+    if (err) { alert(err.message); return }
+    setEditAdjustment(null)
+    loadLedger(selClientId)
+  }
+
+  async function handleDeleteAdjustment() {
+    await supabase.from('client_ledger_adjustments').delete().eq('id', deleteAdjId)
+    setDeleteAdjId(null)
     loadLedger(selClientId)
   }
 
@@ -587,6 +641,12 @@ export default function Ledgers() {
                     <Button size="sm" variant="success" onClick={() => setPaymentModal(true)}>
                       <Plus className="w-4 h-4" />Record Payment
                     </Button>
+                    <Button size="sm" variant="primary" onClick={() => setAdjustmentModal('credit')}>
+                      <Plus className="w-4 h-4" />Add Credit
+                    </Button>
+                    <Button size="sm" variant="danger" onClick={() => setAdjustmentModal('debit')}>
+                      <Plus className="w-4 h-4" />Add Debit
+                    </Button>
                     <Button variant="ghost" size="sm" onClick={() => setImportModal(true)}>
                       <Upload className="w-4 h-4" />Import Ledger Sheet
                     </Button>
@@ -751,6 +811,47 @@ export default function Ledgers() {
                       )
                     }
 
+                    // ── Credit / Debit adjustment row ────────────────────
+                    if (e.type === 'credit' || e.type === 'debit') {
+                      const isCredit = e.type === 'credit'
+                      const color = isCredit ? '#c2410c' : '#7e22ce'
+                      return (
+                        <tr key={e.id} style={{ backgroundColor: isCredit ? '#fff7ed' : '#faf5ff' }}>
+                          <td style={{ padding: '7px 10px', whiteSpace: 'nowrap', color }}>
+                            {fmtDate(e.date)}
+                          </td>
+                          <td colSpan={9} style={{ padding: '7px 10px', color, fontSize: 11 }}>
+                            {isCredit ? 'CREDIT: ' : 'DEBIT: '}{e.description}
+                          </td>
+                          <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color, whiteSpace: 'nowrap' }}>
+                            {isCredit ? fmt(e.receivable) : ''}
+                          </td>
+                          <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color, whiteSpace: 'nowrap' }}>
+                            {!isCredit ? fmt(e.received) : ''}
+                          </td>
+                          <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color: e.balance > 0 ? '#dc2626' : '#16a34a', whiteSpace: 'nowrap' }}>
+                            {fmt(e.balance)}
+                          </td>
+                          <td style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <button
+                              title={`Edit ${e.type}`}
+                              onClick={() => setEditAdjustment(e)}
+                              className="p-1 rounded hover:bg-blue-100 text-gray-400 hover:text-blue-600 transition-colors"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              title={`Delete ${e.type}`}
+                              onClick={() => setDeleteAdjId(e.id)}
+                              className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-danger transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    }
+
                     // ── Shipment row ──────────────────────────────────────
                     const tdS = { padding: '7px 10px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }
                     const tdR = { ...tdS, textAlign: 'right', fontFamily: 'monospace' }
@@ -826,6 +927,29 @@ export default function Ledgers() {
         />
       )}
 
+      {/* Add credit/debit adjustment modal */}
+      {adjustmentModal && selClientId && (
+        <AdjustmentModal
+          clientId={selClientId}
+          type={adjustmentModal}
+          onSave={handleAddAdjustment}
+          onClose={() => setAdjustmentModal(null)}
+          saving={saving}
+        />
+      )}
+
+      {/* Edit credit/debit adjustment modal */}
+      {editAdjustment && (
+        <AdjustmentModal
+          clientId={selClientId}
+          type={editAdjustment.type}
+          existing={editAdjustment}
+          onUpdate={handleUpdateAdjustment}
+          onClose={() => setEditAdjustment(null)}
+          saving={saving}
+        />
+      )}
+
       {/* Delete payment confirm */}
       {deletePayId && (
         <ConfirmDialog
@@ -833,6 +957,16 @@ export default function Ledgers() {
           message="This payment entry will be permanently deleted. The running balance will recalculate."
           onConfirm={handleDeletePayment}
           onCancel={() => setDeletePayId(null)}
+        />
+      )}
+
+      {/* Delete credit/debit adjustment confirm */}
+      {deleteAdjId && (
+        <ConfirmDialog
+          title="Delete Ledger Entry"
+          message="This credit/debit entry will be permanently deleted. The running balance will recalculate."
+          onConfirm={handleDeleteAdjustment}
+          onCancel={() => setDeleteAdjId(null)}
         />
       )}
     </>

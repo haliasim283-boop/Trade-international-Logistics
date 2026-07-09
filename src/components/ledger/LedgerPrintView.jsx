@@ -34,6 +34,17 @@ export function buildPrintHTML(entries, client, summary, dateLabel) {
           <td class="num ${e.balance > 0 ? 'danger' : 'ok'}">${fmt(e.balance)}</td>
         </tr>`
     }
+    if (e.type === 'credit' || e.type === 'debit') {
+      const isCredit = e.type === 'credit'
+      return `
+        <tr class="${isCredit ? 'row-credit' : 'row-debit'}">
+          <td>${fmtDate(e.date)}</td>
+          <td colspan="9">${isCredit ? 'CREDIT: ' : 'DEBIT: '}${e.description || ''}</td>
+          <td class="num bold">${isCredit ? fmt(e.receivable) : ''}</td>
+          <td class="num bold">${!isCredit ? fmt(e.received) : ''}</td>
+          <td class="num ${e.balance > 0 ? 'danger' : 'ok'}">${fmt(e.balance)}</td>
+        </tr>`
+    }
     // shipment
     return `
       <tr class="row-ship">
@@ -93,6 +104,10 @@ export function buildPrintHTML(entries, client, summary, dateLabel) {
     .row-carry { background: #f3f4f6; }
     .row-payment { background: #eff6ff; }
     .row-payment td { color: #1d4ed8; }
+    .row-credit { background: #fff7ed; }
+    .row-credit td { color: #c2410c; }
+    .row-debit { background: #faf5ff; }
+    .row-debit td { color: #7e22ce; }
     .row-ship { background: white; }
     .row-ship:nth-child(even) { background: #fafafa; }
   </style>
@@ -278,6 +293,19 @@ export function LedgerPrintView({ entries, client, summary, dateLabel, onClose }
                       <td colSpan={9} style={{ ...tdBase, color: '#1d4ed8', fontSize: 10 }}>{e.description}</td>
                       <td style={tdBase} /> {/* RECEIVABLE blank */}
                       <td style={{ ...tdNum, ...tdBase, color: '#16a34a', fontWeight: 600 }}>{fmt(e.received)}</td>
+                      <td style={{ ...tdNum, ...tdBase, fontWeight: 600, color: balanceColor(e.balance) }}>{fmt(e.balance)}</td>
+                    </tr>
+                  )
+                }
+                if (e.type === 'credit' || e.type === 'debit') {
+                  const isCredit = e.type === 'credit'
+                  const color = isCredit ? '#c2410c' : '#7e22ce'
+                  return (
+                    <tr key={e.id} style={{ backgroundColor: isCredit ? '#fff7ed' : '#faf5ff' }}>
+                      <td style={{ ...tdBase, color }}>{fmtDate(e.date)}</td>
+                      <td colSpan={9} style={{ ...tdBase, color, fontSize: 10 }}>{isCredit ? 'CREDIT: ' : 'DEBIT: '}{e.description}</td>
+                      <td style={{ ...tdNum, ...tdBase, fontWeight: 600 }}>{isCredit ? fmt(e.receivable) : ''}</td>
+                      <td style={{ ...tdNum, ...tdBase, fontWeight: 600 }}>{!isCredit ? fmt(e.received) : ''}</td>
                       <td style={{ ...tdNum, ...tdBase, fontWeight: 600, color: balanceColor(e.balance) }}>{fmt(e.balance)}</td>
                     </tr>
                   )
