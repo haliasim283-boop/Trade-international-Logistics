@@ -1,4 +1,5 @@
 import { X, Printer } from 'lucide-react'
+import { escapeHtml as esc } from '../../lib/escapeHtml'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -20,7 +21,7 @@ export function buildPrintHTML(entries, client, summary, dateLabel) {
       return `
         <tr class="row-carry">
           <td>${fmtDate(e.date)}</td>
-          <td colspan="11" class="italic">${e.description}</td>
+          <td colspan="11" class="italic">${esc(e.description)}</td>
           <td class="num">${fmt(e.balance)}</td>
         </tr>`
     }
@@ -28,7 +29,7 @@ export function buildPrintHTML(entries, client, summary, dateLabel) {
       return `
         <tr class="row-payment">
           <td>${fmtDate(e.date)}</td>
-          <td colspan="9">${e.description || ''}</td>
+          <td colspan="9">${esc(e.description)}</td>
           <td></td>
           <td class="num">${fmt(e.received)}</td>
           <td class="num ${e.balance > 0 ? 'danger' : 'ok'}">${fmt(e.balance)}</td>
@@ -39,7 +40,7 @@ export function buildPrintHTML(entries, client, summary, dateLabel) {
       return `
         <tr class="${isCredit ? 'row-credit' : 'row-debit'}">
           <td>${fmtDate(e.date)}</td>
-          <td colspan="9">${isCredit ? 'CREDIT: ' : 'DEBIT: '}${e.description || ''}</td>
+          <td colspan="9">${isCredit ? 'CREDIT: ' : 'DEBIT: '}${esc(e.description)}</td>
           <td class="num bold">${isCredit ? fmt(e.receivable) : ''}</td>
           <td class="num bold">${!isCredit ? fmt(e.received) : ''}</td>
           <td class="num ${e.balance > 0 ? 'danger' : 'ok'}">${fmt(e.balance)}</td>
@@ -49,9 +50,9 @@ export function buildPrintHTML(entries, client, summary, dateLabel) {
     return `
       <tr class="row-ship">
         <td>${fmtDate(e.date)}</td>
-        <td class="mono">${e.awb_number}</td>
-        <td>${e.origin}</td>
-        <td>${e.destination}</td>
+        <td class="mono">${esc(e.awb_number)}</td>
+        <td>${esc(e.origin)}</td>
+        <td>${esc(e.destination)}</td>
         <td class="num">${e.pieces ?? ''}</td>
         <td class="num">${Number(e.weight || 0).toFixed(3)}</td>
         <td class="num">${e.net_rate > 0 ? fmt(e.net_rate) : ''}</td>
@@ -70,7 +71,7 @@ export function buildPrintHTML(entries, client, summary, dateLabel) {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Statement — ${client.name}</title>
+  <title>Statement — ${esc(client.name)}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: Arial, Helvetica, sans-serif; font-size: 8.5px; color: #111; background: white; }
@@ -142,7 +143,7 @@ export function buildPrintHTML(entries, client, summary, dateLabel) {
 
   <div class="client-bar">
     <div class="client-title">
-      AC STATEMENT FOR ${client.name}${client.contact_person ? ' / ' + client.contact_person : ''}, ${client.city || ''}, PAKISTAN
+      AC STATEMENT FOR ${esc(client.name)}${client.contact_person ? ' / ' + esc(client.contact_person) : ''}, ${esc(client.city)}, PAKISTAN
     </div>
     <div class="date-range">${dateLabel}</div>
   </div>

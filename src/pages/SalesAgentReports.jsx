@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button'
 import { Spinner } from '../components/ui/Spinner'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { SalesAgentPaymentModal } from '../components/salesagent/SalesAgentPaymentModal'
+import { escapeHtml as esc } from '../lib/escapeHtml'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -184,16 +185,16 @@ export default function SalesAgentReports() {
       const comm = r2(Number(s.chargeable_weight || 0) * Number(s.sales_agent_commission_per_kg || 0))
       return `<tr>
         <td>${fmtDate(s.flight_date)}</td>
-        <td class="mono">${s.awb_number}</td>
-        <td>${s.clients?.name ?? '—'}</td>
-        <td>${s.origin}</td>
-        <td>${s.destination}</td>
+        <td class="mono">${esc(s.awb_number)}</td>
+        <td>${esc(s.clients?.name) || '—'}</td>
+        <td>${esc(s.origin)}</td>
+        <td>${esc(s.destination)}</td>
         <td class="r">${Number(s.chargeable_weight || 0).toFixed(3)}</td>
         <td class="r mono">${fmt(s.sales_agent_commission_per_kg)}</td>
         <td class="r mono bold">PKR ${fmt(comm)}</td>
       </tr>`
     }).join('')
-    w.document.write(`<!DOCTYPE html><html><head><title>Sales Agent Report — ${agent?.name}</title>
+    w.document.write(`<!DOCTYPE html><html><head><title>Sales Agent Report — ${esc(agent?.name)}</title>
     <style>
       body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a2e;margin:20px}
       h2{margin:0 0 4px}p{margin:0 0 2px;color:#555}
@@ -206,7 +207,7 @@ export default function SalesAgentReports() {
       .tile{border:1px solid #ddd;border-radius:8px;padding:10px 14px;flex:1}
       .tile p{font-size:10px;color:#666;margin-bottom:2px}.tile h3{margin:0;font-size:16px}
     </style></head><body>
-    <h2>Sales Agent Report — ${agent?.name}</h2>
+    <h2>Sales Agent Report — ${esc(agent?.name)}</h2>
     <p>${fmtDate(dateFrom)} – ${fmtDate(dateTo)}</p>
     <div class="summary">
       <div class="tile"><p>Shipments</p><h3>${summary.totalShipments}</h3></div>

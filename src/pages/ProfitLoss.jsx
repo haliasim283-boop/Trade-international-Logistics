@@ -149,7 +149,6 @@ function printPL(data, prevData, from, to, prevFrom, prevTo) {
   <h1 style="color:#1a2744;font-size:20px;margin-bottom:4px">TRADE INTERNATIONAL LOGISTICS</h1>
   <p style="color:#555;margin-bottom:4px">Profit &amp; Loss Statement</p>
   <p style="color:#555;margin-bottom:16px">Period: ${fmtDate(from)} – ${fmtDate(to)}${cmp ? ` | Previous: ${fmtDate(prevFrom)} – ${fmtDate(prevTo)}` : ''}</p>
-  <button onclick="window.print()" style="margin-bottom:14px;padding:6px 18px;background:#1a2744;color:white;border:none;border-radius:4px;cursor:pointer">Print / Save PDF</button>
   <table>
     <tr style="background:#1a2744;color:white">
       <th style="padding:8px 10px;text-align:left">Description</th>
@@ -180,6 +179,7 @@ function printPL(data, prevData, from, to, prevFrom, prevTo) {
   <p style="font-size:11px;color:#aaa;margin-top:20px">Generated ${new Date().toLocaleDateString('en-GB')} — Trade International Logistics</p>
   </body></html>`)
   win.document.close()
+  setTimeout(() => { win.focus(); win.print() }, 400)
 }
 
 // ── CSV export ────────────────────────────────────────────────────────────────
