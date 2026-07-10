@@ -91,7 +91,9 @@ export function buildPrintHTML(entries, client, summary, dateLabel) {
     .client-title { font-size: 9px; font-weight: bold; color: #1a2744; text-transform: uppercase; letter-spacing: 0.05em; }
     .date-range { font-size: 7.5px; color: #6b7280; }
 
-    table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 6px; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
     th { background: #1a2744; color: white; padding: 5px 5px; font-size: 7px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
     th.num { text-align: right; }
     td { padding: 4px 5px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }

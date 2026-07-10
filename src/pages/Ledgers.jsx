@@ -179,6 +179,12 @@ async function buildStatementPdf(entries, client, summary, dateLabel) {
   const contentHeight = body.scrollHeight
   iframe.style.height = contentHeight + 'px'
 
+  // Row boundaries (css px, relative to the iframe document) — page breaks
+  // snap to these so a row is never sliced in half across two pages.
+  const rowBottoms = Array.from(iframe.contentDocument.querySelectorAll('tr'))
+    .map((tr) => tr.getBoundingClientRect().bottom)
+    .sort((a, b) => a - b)
+
   const canvas = await html2canvas(body, {
     scale: 2,
     useCORS: true,
@@ -192,18 +198,42 @@ async function buildStatementPdf(entries, client, summary, dateLabel) {
   const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
   const pageW = pdf.internal.pageSize.getWidth()
   const pageH = pdf.internal.pageSize.getHeight()
-  const imgH = (canvas.height * pageW) / canvas.width
-  const imgData = canvas.toDataURL('image/jpeg', 0.97)
+  const imgH = (canvas.height * pageW) / canvas.width // full image height in mm
+  const mmPerCssPx = imgH / contentHeight
+  const pxPerPage = pageH / mmPerCssPx // how many css px worth of content fit on one page
 
-  let remaining = imgH
-  let yOffset = 0
-  pdf.addImage(imgData, 'JPEG', 0, yOffset, pageW, imgH)
-  remaining -= pageH
-  while (remaining > 0) {
-    yOffset -= pageH
-    pdf.addPage()
-    pdf.addImage(imgData, 'JPEG', 0, yOffset, pageW, imgH)
-    remaining -= pageH
+  const sliceCanvas = document.createElement('canvas')
+  const sliceCtx = sliceCanvas.getContext('2d')
+
+  let currentTopPx = 0
+  let firstPage = true
+  while (currentTopPx < contentHeight - 0.5) {
+    const targetBottomPx = currentTopPx + pxPerPage
+    let sliceBottomPx = targetBottomPx
+    if (targetBottomPx < contentHeight) {
+      const candidate = rowBottoms.filter((b) => b > currentTopPx + 1 && b <= targetBottomPx).pop()
+      if (candidate) sliceBottomPx = candidate
+    } else {
+      sliceBottomPx = contentHeight
+    }
+
+    const canvasTop = Math.round(currentTopPx * (canvas.height / contentHeight))
+    const canvasBottom = Math.min(canvas.height, Math.round(sliceBottomPx * (canvas.height / contentHeight)))
+    const sliceHeightCanvasPx = canvasBottom - canvasTop
+
+    sliceCanvas.width = canvas.width
+    sliceCanvas.height = sliceHeightCanvasPx
+    sliceCtx.clearRect(0, 0, sliceCanvas.width, sliceCanvas.height)
+    sliceCtx.drawImage(canvas, 0, canvasTop, canvas.width, sliceHeightCanvasPx, 0, 0, canvas.width, sliceHeightCanvasPx)
+
+    const sliceImgData = sliceCanvas.toDataURL('image/jpeg', 0.97)
+    const sliceImgH = sliceHeightCanvasPx * (imgH / canvas.height)
+
+    if (!firstPage) pdf.addPage()
+    pdf.addImage(sliceImgData, 'JPEG', 0, 0, pageW, sliceImgH)
+
+    firstPage = false
+    currentTopPx = sliceBottomPx
   }
 
   return pdf
