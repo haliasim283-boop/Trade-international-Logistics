@@ -44,6 +44,7 @@ export function buildPrintHTML(invoice, clientName, clientCity) {
   const hasOther      = Number(invoice.other_charges) > 0
   const hasAmendment  = Number(invoice.amendment_charges) > 0
   const hasAdj        = invoice.adjustment_amount != null && Math.abs(Number(invoice.adjustment_amount)) > 0
+  const hasAdvance    = Number(invoice.advance_payment_amount) > 0
 
   const rows = []
 
@@ -86,10 +87,19 @@ export function buildPrintHTML(invoice, clientName, clientCity) {
 
   if (hasAdj) rows.push(`
     <tr>
-      <td class="desc">ADJUSTMENT BALANCE INV NO ${invoice.adjustment_ref_invoice_no || ''}</td>
+      <td class="desc">ADJUSTMENT BALANCE INV NO${invoice.adjustment_ref_invoice_no || ''}</td>
       <td></td><td></td>
       <td class="num mono bold" style="color:${Number(invoice.adjustment_amount) < 0 ? '#dc2626' : '#111'}">
         PKR ${fmt(invoice.adjustment_amount)}
+      </td>
+    </tr>`)
+
+  if (hasAdvance) rows.push(`
+    <tr>
+      <td class="desc">ADVANCE PAYMENT RECEIVED${invoice.advance_payment_note ? ` — ${invoice.advance_payment_note}` : ''}</td>
+      <td></td><td></td>
+      <td class="num mono bold" style="color:#dc2626">
+        PKR -${fmt(invoice.advance_payment_amount)}
       </td>
     </tr>`)
 
@@ -228,6 +238,7 @@ export function InvoicePrintView({ invoice, clientName, clientCity, onClose }) {
   const hasOther     = Number(invoice.other_charges) > 0
   const hasAmendment = Number(invoice.amendment_charges) > 0
   const hasAdj       = invoice.adjustment_amount != null && Math.abs(Number(invoice.adjustment_amount)) > 0
+  const hasAdvance   = Number(invoice.advance_payment_amount) > 0
 
   function handlePrint() {
     const w = window.open('', '_blank')
@@ -397,6 +408,19 @@ export function InvoicePrintView({ invoice, clientName, clientCity, onClose }) {
                   <td style={tdBase} /><td style={tdBase} />
                   <td style={{ ...tdBold, color: Number(invoice.adjustment_amount) < 0 ? '#dc2626' : '#111' }}>
                     PKR {fmt(invoice.adjustment_amount)}
+                  </td>
+                </tr>
+              )}
+
+              {/* ADVANCE PAYMENT */}
+              {hasAdvance && (
+                <tr>
+                  <td style={tdBase}>
+                    ADVANCE PAYMENT RECEIVED{invoice.advance_payment_note ? ` — ${invoice.advance_payment_note}` : ''}
+                  </td>
+                  <td style={tdBase} /><td style={tdBase} />
+                  <td style={{ ...tdBold, color: '#dc2626' }}>
+                    PKR -{fmt(invoice.advance_payment_amount)}
                   </td>
                 </tr>
               )}

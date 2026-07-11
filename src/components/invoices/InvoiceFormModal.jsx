@@ -34,6 +34,8 @@ const BLANK = {
   amendment_charges:        '',
   adjustment_ref_invoice_no: '',
   adjustment_amount:        '',
+  advance_payment_amount:   '',
+  advance_payment_note:     '',
   notes:                    '',
 }
 
@@ -42,6 +44,7 @@ const BLANK = {
 export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAgents = [], onSave, onClose, saving }) {
   const [form,             setForm]          = useState(BLANK)
   const [showAdj,          setShowAdj]       = useState(false)
+  const [showAdvance,      setShowAdvance]   = useState(false)
   const [awbStatus,        setAwbStatus]     = useState(null)  // null | 'loading' | 'found' | 'not-found'
   const [saCommissionPkr,  setSaCommission]  = useState(0)
 
@@ -69,10 +72,15 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
         amendment_charges:        invoice.amendment_charges ?? '',
         adjustment_ref_invoice_no: invoice.adjustment_ref_invoice_no ?? '',
         adjustment_amount:        invoice.adjustment_amount        ?? '',
+        advance_payment_amount:   invoice.advance_payment_amount   ?? '',
+        advance_payment_note:     invoice.advance_payment_note     ?? '',
         notes:                    invoice.notes                    ?? '',
       })
       if (invoice.adjustment_amount != null && Math.abs(Number(invoice.adjustment_amount)) > 0) {
         setShowAdj(true)
+      }
+      if (Number(invoice.advance_payment_amount || 0) > 0) {
+        setShowAdvance(true)
       }
     } else if (shipment) {
       // Pre-fill from shipment; clearing_charges absorbs idc_tax
@@ -96,6 +104,8 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
         amendment_charges:        String(round2(Number(shipment.amendment_charges || 0))),
         adjustment_ref_invoice_no: '',
         adjustment_amount:        '',
+        advance_payment_amount:   '',
+        advance_payment_note:     '',
         notes:                    '',
       })
       setSaCommission(round2(Number(shipment.sales_agent_commission_per_kg || 0) * Number(shipment.chargeable_weight || 0)))
@@ -155,6 +165,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
   const otherChgPkr   = round2(Number(form.other_charges || 0) * pkrRate)
   const amendmentChg  = round2(Number(form.amendment_charges || 0))
   const adjAmount     = showAdj ? round2(Number(form.adjustment_amount || 0)) : 0
+  const advanceAmount = showAdvance ? round2(Number(form.advance_payment_amount || 0)) : 0
   const totalAmount   = round2(
     freightAmount
     + round2(Number(form.clearing_charges || 0))
@@ -163,6 +174,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
     + saCommissionPkr
     + amendmentChg
     + adjAmount
+    - advanceAmount
   )
 
   // ── Submit ────────────────────────────────────────────────────────────────
@@ -191,6 +203,8 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
       amendment_charges:        amendmentChg,
       adjustment_ref_invoice_no: showAdj ? (form.adjustment_ref_invoice_no.trim() || null) : null,
       adjustment_amount:        showAdj ? adjAmount : null,
+      advance_payment_amount:   showAdvance ? advanceAmount : null,
+      advance_payment_note:     showAdvance ? (form.advance_payment_note.trim() || null) : null,
       total_amount:             totalAmount,
       notes:                    form.notes.trim() || null,
     }
@@ -420,6 +434,46 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
           )}
         </div>
 
+        {/* ── Advance payment received ───────────────────────────────── */}
+        <div className="border border-gray-200 rounded-lg p-4">
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 font-medium mb-0">
+            <input
+              type="checkbox"
+              checked={showAdvance}
+              onChange={(e) => setShowAdvance(e.target.checked)}
+              className="w-4 h-4 accent-navy"
+            />
+            Include advance payment received
+          </label>
+          {showAdvance && (
+            <div className="grid grid-cols-2 gap-4 mt-3">
+              <div>
+                <label className={LBL}>Advance Payment Amount (PKR)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className={INP}
+                  name="advance_payment_amount"
+                  value={form.advance_payment_amount}
+                  onChange={set('advance_payment_amount')}
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <label className={LBL}>Note (optional)</label>
+                <input
+                  name="advance_payment_note"
+                  className={INP}
+                  value={form.advance_payment_note}
+                  onChange={set('advance_payment_note')}
+                  placeholder="e.g. received by Shahzad"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* ── Notes ─────────────────────────────────────────────────── */}
         <div>
           <label className={LBL}>Notes</label>
@@ -471,6 +525,12 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
               <div className="flex justify-between text-gray-600">
                 <span>Adjustment</span>
                 <span className={`font-mono ${adjAmount < 0 ? 'text-danger' : ''}`}>PKR {fmt2(adjAmount)}</span>
+              </div>
+            )}
+            {showAdvance && advanceAmount !== 0 && (
+              <div className="flex justify-between text-gray-600">
+                <span>Advance Payment Received</span>
+                <span className="font-mono text-danger">PKR -{fmt2(advanceAmount)}</span>
               </div>
             )}
             <div className="flex justify-between items-center pt-2 mt-2 border-t border-gray-200">
