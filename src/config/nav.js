@@ -13,11 +13,13 @@ import {
   PieChart,
   Settings,
   UserCog,
+  Package,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
   { icon: LayoutDashboard, label: 'Dashboard',              path: '/',          phase: null },
   { icon: Plane,           label: 'Master Shipment Log',    path: '/shipments', phase: 4 },
+  { icon: Package,         label: 'Stock Management',       path: '/stock',     phase: null },
   { icon: Users,           label: 'Party Management',       path: '/parties',   phase: 3 },
   { icon: FileText,        label: 'Invoices',               path: '/invoices',  phase: 6 },
   { icon: BookOpen,        label: 'Party Ledgers',          path: '/ledgers',   phase: 5 },
@@ -36,6 +38,7 @@ export const NAV_ITEMS = [
 export const ROUTE_ACCESS = {
   '/':             ['Admin','Manager','Report Viewer','Invoice Agent'],
   '/shipments':    ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
+  '/stock':        ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
   '/parties':      ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
   '/invoices':     ['Admin','Manager','Report Viewer','Invoice Agent'],
   '/ledgers':      ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
