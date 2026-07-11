@@ -67,7 +67,12 @@ export function AuthProvider({ children }) {
       setProfile(data)
     } catch (err) {
       console.error('Failed to fetch profile:', err.message)
-      setProfile(null)
+      // Do NOT blindly clear the profile on failure. A transient error (e.g.
+      // the network dropped) must not downgrade a known role to null — the
+      // authorization guards fail closed on a null role, but nulling a valid
+      // role would also wrongly lock a legitimate user out of their own pages.
+      // Only clear when we genuinely have no established profile for this user.
+      setProfile(prev => (prev && prev.id === userId ? prev : null))
     } finally {
       setLoading(false)
     }

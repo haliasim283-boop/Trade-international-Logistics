@@ -12,7 +12,10 @@ export function ProtectedRoute({ children, allowedRoles }) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 
-  if (allowedRoles && role && !allowedRoles.includes(role)) {
+  // Fail CLOSED: for a role-restricted route, an authenticated user whose
+  // role is unknown (null — e.g. the profile fetch failed while offline) or
+  // not in the allowed list is denied. Never grant access when role is null.
+  if (allowedRoles && (!role || !allowedRoles.includes(role))) {
     return <Navigate to="/unauthorized" replace />
   }
 

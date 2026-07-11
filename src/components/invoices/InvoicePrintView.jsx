@@ -1,4 +1,5 @@
 import { X, Printer } from 'lucide-react'
+import { escapeHtml as esc } from '../../lib/escapeHtml'
 
 // ── City name lookup ─────────────────────────────────────────────────────────
 
@@ -87,7 +88,11 @@ export function buildPrintHTML(invoice, clientName, clientCity) {
 
   if (hasAdj) rows.push(`
     <tr>
+<<<<<<< HEAD
       <td class="desc">ADJUSTMENT BALANCE INV NO${invoice.adjustment_ref_invoice_no || ''}</td>
+=======
+      <td class="desc">ADJUSTMENT BALANCE INV NO ${esc(invoice.adjustment_ref_invoice_no)}</td>
+>>>>>>> 743d2165e62a22c8c574e57a17fd4824669eef75
       <td></td><td></td>
       <td class="num mono bold" style="color:${Number(invoice.adjustment_amount) < 0 ? '#dc2626' : '#111'}">
         PKR ${fmt(invoice.adjustment_amount)}
@@ -107,7 +112,7 @@ export function buildPrintHTML(invoice, clientName, clientCity) {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Invoice ${invoice.invoice_number}</title>
+  <title>Invoice ${esc(invoice.invoice_number)}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #111; background: white; }
@@ -167,13 +172,13 @@ export function buildPrintHTML(invoice, clientName, clientCity) {
       </div>
       <div>
         <div class="inv-no-label">Invoice No.</div>
-        <div class="inv-no">${invoice.invoice_number}</div>
+        <div class="inv-no">${esc(invoice.invoice_number)}</div>
       </div>
     </div>
     <div class="header-bill">
       <div>
         <div class="bill-for-label">Bill For</div>
-        <div class="bill-for-awb">${invoice.awb_number}</div>
+        <div class="bill-for-awb">${esc(invoice.awb_number)}</div>
       </div>
       <div class="inv-date">${formatFullDate(invoice.invoice_date)}</div>
     </div>
@@ -182,8 +187,8 @@ export function buildPrintHTML(invoice, clientName, clientCity) {
   <div class="bill-to-section">
     <div>
       <div class="section-label">Bill To</div>
-      <div class="bill-name">${clientName || ''}</div>
-      <div class="bill-city">${clientCity || ''}</div>
+      <div class="bill-name">${esc(clientName)}</div>
+      <div class="bill-city">${esc(clientCity)}</div>
     </div>
     <div>
       <div class="section-label">For</div>
@@ -212,7 +217,7 @@ export function buildPrintHTML(invoice, clientName, clientCity) {
     </table>
   </div>
 
-  ${invoice.notes ? `<div class="notes"><strong>Notes:</strong> ${invoice.notes}</div>` : ''}
+  ${invoice.notes ? `<div class="notes"><strong>Notes:</strong> ${esc(invoice.notes)}</div>` : ''}
 
   <div class="footer">
     <div class="footer-payable">Make all checks payable to Trade International Logistics</div>

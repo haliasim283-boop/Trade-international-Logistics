@@ -1,5 +1,7 @@
 // Opens CASS report in a new print window (A4 landscape)
 
+import { escapeHtml as esc } from '../../lib/escapeHtml'
+
 function fmt(n) {
   return Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
@@ -14,9 +16,9 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
   const awbRows = rows.map((r, i) => `
     <tr class="${r.isAdj ? 'adj-row' : ''}">
       <td class="center">${r.isAdj ? '—' : i + 1}</td>
-      <td class="mono">${r.awb_number || '—'}</td>
-      <td class="center">${r.origin || ''}</td>
-      <td class="center">${r.destination || ''}</td>
+      <td class="mono">${esc(r.awb_number) || '—'}</td>
+      <td class="center">${esc(r.origin)}</td>
+      <td class="center">${esc(r.destination)}</td>
       <td class="num">${r.isAdj ? '' : Number(r.chargeable_weight || 0).toFixed(3)}</td>
       <td class="num">${r.isAdj ? '' : fmt(r.pwc)}</td>
       <td class="num">${r.isAdj ? '' : fmt(r.commission)}</td>
@@ -29,7 +31,7 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
 
   const adjRows = adjustments.map((a) => `
     <tr>
-      <td colspan="2" class="label">${a.description}</td>
+      <td colspan="2" class="label">${esc(a.description)}</td>
       <td colspan="10"></td>
       <td class="num ${Number(a.amount) >= 0 ? '' : 'credit'}">${Number(a.amount) >= 0 ? '+' : ''}${fmt(a.amount)}</td>
     </tr>`).join('')
@@ -37,17 +39,17 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
   const payRows = payments.map((p) => `
     <tr>
       <td>${fmtDate(p.payment_date)}</td>
-      <td>${p.bank_account || ''}</td>
+      <td>${esc(p.bank_account)}</td>
       <td class="num">${fmt(p.amount)}</td>
-      <td>${p.transaction_id || ''}</td>
-      <td>${p.notes || ''}</td>
+      <td>${esc(p.transaction_id)}</td>
+      <td>${esc(p.notes)}</td>
     </tr>`).join('')
 
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>CASS Report — ${airline?.name} — ${period.label}</title>
+  <title>CASS Report — ${esc(airline?.name)} — ${esc(period.label)}</title>
   <style>
     @page { size: A4 landscape; margin: 12mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Arial', sans-serif; }
@@ -108,15 +110,15 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
 
   <div class="header">
     <div class="header-left">
-      <h1>${settings?.company_name ?? 'TRADE INTERNATIONAL LOGISTICS'}</h1>
-      <p>${settings?.company_address ?? ''}</p>
-      <p>IATA: ${settings?.iata_code ?? ''} &nbsp;|&nbsp; VAT: ${settings?.vat_registration ?? ''}</p>
+      <h1>${esc(settings?.company_name) || 'TRADE INTERNATIONAL LOGISTICS'}</h1>
+      <p>${esc(settings?.company_address)}</p>
+      <p>IATA: ${esc(settings?.iata_code)} &nbsp;|&nbsp; VAT: ${esc(settings?.vat_registration)}</p>
     </div>
     <div class="header-right">
       <div class="report-title">AIRLINE SALES REPORT (CASS)</div>
-      <div class="period">${airline?.name ?? ''} &mdash; ${period.label}</div>
+      <div class="period">${esc(airline?.name)} &mdash; ${esc(period.label)}</div>
       <div class="period">Period: ${fmtDate(period.start)} &ndash; ${fmtDate(period.end)}</div>
-      <div class="iata">Airline Prefix: ${airline?.iata_prefix ?? ''} &nbsp;|&nbsp; Commission: USD ${Number(airline?.cass_commission_usd_per_kg ?? 0).toFixed(4)}/kg</div>
+      <div class="iata">Airline Prefix: ${esc(airline?.iata_prefix)} &nbsp;|&nbsp; Commission: USD ${Number(airline?.cass_commission_usd_per_kg ?? 0).toFixed(4)}/kg</div>
     </div>
   </div>
 
@@ -170,7 +172,7 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
       <tr><td class="recap-sub">&nbsp;&nbsp;Less: Commission Due Agent (USD ${Number(airline?.cass_commission_usd_per_kg ?? 0).toFixed(4)}/kg)</td><td>(${fmt(recap.totalCommission)})</td></tr>
       ${recap.totalOCAirline > 0 ? `<tr><td class="recap-sub">&nbsp;&nbsp;Other Charges Due Airline</td><td>+${fmt(recap.totalOCAirline)}</td></tr>` : ''}
       ${recap.isPia && recap.totalWHT > 0 ? `<tr class="wht-row"><td class="recap-sub">&nbsp;&nbsp;WHT @ ${settings?.cass_wht_rate ?? 12}% of Profit</td><td>+${fmt(recap.totalWHT)}</td></tr>` : ''}
-      ${adjustments.map((a) => `<tr><td class="recap-sub">&nbsp;&nbsp;${a.description}</td><td class="${Number(a.amount) < 0 ? 'credit' : ''}">${Number(a.amount) >= 0 ? '+' : ''}${fmt(a.amount)}</td></tr>`).join('')}
+      ${adjustments.map((a) => `<tr><td class="recap-sub">&nbsp;&nbsp;${esc(a.description)}</td><td class="${Number(a.amount) < 0 ? 'credit' : ''}">${Number(a.amount) >= 0 ? '+' : ''}${fmt(a.amount)}</td></tr>`).join('')}
       <tr class="recap-total"><td>Net Due Export</td><td>PKR ${fmt(recap.netDueExport)}</td></tr>
       <tr class="grand"><td>GRAND TOTAL PAYABLE</td><td>PKR ${fmt(recap.grandTotal)}</td></tr>
     </table>
@@ -198,12 +200,11 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
   <div class="footer">
     Generated by Trade International Logistics Management System &bull; ${new Date().toLocaleString('en-GB')}
   </div>
-
-  <script>window.onload = () => window.print()</script>
 </body>
 </html>`
 
   const win = window.open('', '_blank', 'width=1200,height=850')
   win.document.write(html)
   win.document.close()
+  setTimeout(() => { win.focus(); win.print() }, 400)
 }
