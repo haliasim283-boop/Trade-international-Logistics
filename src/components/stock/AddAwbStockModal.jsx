@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
+import { normalizeAwb } from '../../lib/awbStock'
 
 const INP = 'w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent'
 const MAX_RANGE = 500
@@ -37,10 +39,19 @@ function parseManualList(text) {
   )]
 }
 
-export function AddAwbStockModal({ airlines, defaultAirlineId, existingKeys, onSave, onClose, saving }) {
+// Prefer the saved default batch prefix; otherwise fall back to the
+// airline's fixed 3-digit IATA code so the user only has to type the
+// remaining digits (e.g. "049-" for Air Arabia).
+function defaultPrefixFor(airline) {
+  if (!airline) return ''
+  if (airline.current_awb_prefix) return airline.current_awb_prefix
+  return airline.iata_prefix ? `${airline.iata_prefix}-` : ''
+}
+
+export function AddAwbStockModal({ airlines, defaultAirlineId, existingAwbMap, onSave, onClose, saving }) {
   const [tab, setTab] = useState('range') // 'range' | 'manual'
   const [airlineId, setAirlineId] = useState(defaultAirlineId ?? airlines[0]?.id ?? '')
-  const [prefix, setPrefix] = useState(() => airlines.find((a) => a.id === defaultAirlineId)?.current_awb_prefix ?? '')
+  const [prefix, setPrefix] = useState(() => defaultPrefixFor(airlines.find((a) => a.id === defaultAirlineId)))
   const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10))
   const [notes, setNotes] = useState('')
 
@@ -51,8 +62,7 @@ export function AddAwbStockModal({ airlines, defaultAirlineId, existingKeys, onS
 
   function onAirlineChange(id) {
     setAirlineId(id)
-    const a = airlines.find((x) => x.id === id)
-    setPrefix(a?.current_awb_prefix ?? '')
+    setPrefix(defaultPrefixFor(airlines.find((x) => x.id === id)))
   }
 
   const serials = useMemo(() => {
@@ -65,24 +75,41 @@ export function AddAwbStockModal({ airlines, defaultAirlineId, existingKeys, onS
     (parseInt(rangeEnd, 10) - parseInt(rangeStart, 10)) / (parseInt(rangeStep, 10) || 1) + 1 > MAX_RANGE
 
   const cleanPrefix = prefix.trim()
-  const duplicates = useMemo(() => {
-    if (!cleanPrefix) return 0
-    return serials.filter((s) => existingKeys.has(`${airlineId}|${cleanPrefix}|${s}`)).length
-  }, [serials, existingKeys, airlineId, cleanPrefix])
 
-  const newCount = serials.length - duplicates
-  const canSave = !saving && airlineId && cleanPrefix && serials.length > 0 && newCount > 0
+  // Cross-checks the full AWB number (prefix + serial) against stock already
+  // saved for ANY airline, not just this one — catches typos/duplicates
+  // regardless of which airline they were originally logged under.
+  // Also collapses duplicates entered twice within the same batch.
+  const { newSerials, duplicateInfo } = useMemo(() => {
+    const seen = new Set()
+    const newSerials = []
+    const duplicateInfo = []
+    for (const s of serials) {
+      const key = normalizeAwb(`${cleanPrefix}${s}`)
+      if (seen.has(key)) continue
+      seen.add(key)
+      const existingRow = cleanPrefix ? existingAwbMap.get(key) : null
+      if (existingRow) {
+        const airlineName = airlines.find((a) => a.id === existingRow.airline_id)?.name ?? 'another airline'
+        duplicateInfo.push({ fullAwb: `${existingRow.prefix}-${existingRow.awb_serial}`, airlineName })
+      } else {
+        newSerials.push(s)
+      }
+    }
+    return { newSerials, duplicateInfo }
+  }, [serials, cleanPrefix, existingAwbMap, airlines])
+
+  const newCount = newSerials.length
+  const canSave = !saving && airlineId && cleanPrefix && serials.length > 0 && newCount > 0 && !rangeTooLarge
 
   function handleSave() {
-    const rows = serials
-      .filter((s) => !existingKeys.has(`${airlineId}|${cleanPrefix}|${s}`))
-      .map((s) => ({
-        airline_id: airlineId,
-        prefix: cleanPrefix,
-        awb_serial: s,
-        received_date: receivedDate || null,
-        notes: notes.trim() || null,
-      }))
+    const rows = newSerials.map((s) => ({
+      airline_id: airlineId,
+      prefix: cleanPrefix,
+      awb_serial: s,
+      received_date: receivedDate || null,
+      notes: notes.trim() || null,
+    }))
     onSave(rows)
   }
 
@@ -145,11 +172,28 @@ export function AddAwbStockModal({ airlines, defaultAirlineId, existingKeys, onS
         {rangeTooLarge ? (
           <p className="text-sm text-danger">Range too large — max {MAX_RANGE} numbers at once.</p>
         ) : serials.length > 0 && (
-          <p className="text-sm text-gray-500">
-            {serials.length} number{serials.length !== 1 ? 's' : ''} parsed
-            {duplicates > 0 && <span className="text-amber-600"> · {duplicates} already in stock (skipped)</span>}
-            {' · '}<span className="font-medium text-gray-700">{Math.max(newCount, 0)} will be added</span>
-          </p>
+          <>
+            {duplicateInfo.length > 0 && (
+              <div className="flex gap-2 bg-amber-50 border border-amber-200 rounded-md px-3 py-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-amber-800 min-w-0">
+                  <p className="font-medium">
+                    {duplicateInfo.length} AWB number{duplicateInfo.length !== 1 ? 's' : ''} already in stock — will be skipped:
+                  </p>
+                  <p className="mt-1 font-mono text-xs text-amber-700 break-words">
+                    {duplicateInfo.slice(0, 10).map((d, i) => (
+                      <span key={i}>{i > 0 && ', '}{d.fullAwb} <span className="text-amber-500">({d.airlineName})</span></span>
+                    ))}
+                    {duplicateInfo.length > 10 && ` +${duplicateInfo.length - 10} more`}
+                  </p>
+                </div>
+              </div>
+            )}
+            <p className={`text-sm ${newCount === 0 ? 'text-danger' : 'text-gray-500'}`}>
+              {serials.length} number{serials.length !== 1 ? 's' : ''} parsed
+              {' · '}<span className="font-medium">{newCount} will be added</span>
+            </p>
+          </>
         )}
 
         <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">

@@ -8,13 +8,10 @@ import { Spinner } from '../components/ui/Spinner'
 import { Table, Thead, Th, Tbody, Tr, Td } from '../components/ui/Table'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { AddAwbStockModal } from '../components/stock/AddAwbStockModal'
+import { normalizeAwb, buildShipmentAwbMap, classifyStockRow } from '../lib/awbStock'
 
 const SEL = 'border border-gray-300 rounded-md px-3 py-2 text-sm pr-8 appearance-none focus:outline-none focus:ring-2 focus:ring-accent bg-white'
 const INP = 'border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent'
-
-function normalizeAwb(s) {
-  return (s ?? '').toString().replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
-}
 
 function fmtDate(s) {
   if (!s) return '—'
@@ -74,14 +71,7 @@ export default function StockManagement() {
     setPrefixDraft(a?.current_awb_prefix ?? '')
   }, [airlineFilter, airlines])
 
-  const shipmentByAwb = useMemo(() => {
-    const map = new Map()
-    for (const s of shipments) {
-      const key = normalizeAwb(s.awb_number)
-      if (key) map.set(key, s)
-    }
-    return map
-  }, [shipments])
+  const shipmentByAwb = useMemo(() => buildShipmentAwbMap(shipments), [shipments])
 
   const airlineById = useMemo(() => {
     const map = new Map()
@@ -89,20 +79,18 @@ export default function StockManagement() {
     return map
   }, [airlines])
 
-  const existingKeys = useMemo(() => {
-    const set = new Set()
-    for (const row of stock) set.add(`${row.airline_id}|${row.prefix}|${row.awb_serial}`)
-    return set
+  // Keyed by normalized full AWB number (prefix + serial) so duplicates are
+  // caught across all airlines, not just within the same airline/prefix.
+  const existingAwbMap = useMemo(() => {
+    const map = new Map()
+    for (const row of stock) map.set(normalizeAwb(`${row.prefix}${row.awb_serial}`), row)
+    return map
   }, [stock])
 
   const enriched = useMemo(() => {
     return stock.map((row) => {
       const key = normalizeAwb(`${row.prefix}${row.awb_serial}`)
-      const match = shipmentByAwb.get(key)
-      let state = 'available'
-      if (match && match.status === 'SHPD') state = 'used'
-      else if (match) state = 'reserved'
-      return { ...row, state, shipment: match ?? null }
+      return { ...row, state: classifyStockRow(row, shipmentByAwb), shipment: shipmentByAwb.get(key) ?? null }
     })
   }, [stock, shipmentByAwb])
 
@@ -296,7 +284,7 @@ export default function StockManagement() {
         <AddAwbStockModal
           airlines={airlines}
           defaultAirlineId={airlineFilter || airlines[0]?.id}
-          existingKeys={existingKeys}
+          existingAwbMap={existingAwbMap}
           onSave={handleAddStock}
           onClose={() => setAddModalOpen(false)}
           saving={saving}
