@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { buildShipmentAwbMap, classifyStockRow } from '../../lib/awbStock'
 
-const LOW_STOCK_THRESHOLD = 2
+const LOW_STOCK_THRESHOLD = 5
 const POLL_MS = 120_000
 
 function playAlertSound() {
