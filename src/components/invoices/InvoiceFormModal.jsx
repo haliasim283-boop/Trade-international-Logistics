@@ -68,7 +68,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
         clearing_charges:         invoice.clearing_charges         ?? '',
         form_e_usd_value:         invoice.form_e_usd_value         ?? '',
         form_e_pkr_rate:          invoice.form_e_pkr_rate          ?? '',
-        other_charges:            round2(Number(invoice.other_charges || 0) / Number(invoice.pkr_exchange_rate || 280)),
+        other_charges:            invoice.other_charges ?? '',
         amendment_charges:        invoice.amendment_charges ?? '',
         adjustment_ref_invoice_no: invoice.adjustment_ref_invoice_no ?? '',
         adjustment_amount:        invoice.adjustment_amount        ?? '',
@@ -100,7 +100,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
         clearing_charges:         String(round2(Number(shipment.clearing_charges || 0) + Number(shipment.idc_tax || 0))),
         form_e_usd_value:         shipment.form_e_usd_value  ?? '',
         form_e_pkr_rate:          shipment.form_e_pkr_rate   ?? '',
-        other_charges:            round2((Number(shipment.awb_upload_charges || 0) + Number(shipment.other_charges_due_airline || 0) + Number(shipment.awb_fixed_fee || 0)) / Number(shipment.pkr_exchange_rate || 280)),
+        other_charges:            round2(Number(shipment.awb_upload_charges || 0) + Number(shipment.other_charges_due_airline || 0) + Number(shipment.awb_fixed_fee || 0)),
         amendment_charges:        String(round2(Number(shipment.amendment_charges || 0))),
         adjustment_ref_invoice_no: '',
         adjustment_amount:        '',
@@ -141,7 +141,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
       client_id:         f.client_id         || data.client_id         || '',
       clearing_agent_id: f.clearing_agent_id || data.clearing_agent_id || '',
       clearing_charges:  f.clearing_charges  || String(round2(Number(data.clearing_charges || 0) + Number(data.idc_tax || 0))),
-      other_charges:     f.other_charges     || round2((Number(data.awb_upload_charges || 0) + Number(data.other_charges_due_airline || 0) + Number(data.awb_fixed_fee || 0)) / Number(data.pkr_exchange_rate || 280)),
+      other_charges:     f.other_charges     || round2(Number(data.awb_upload_charges || 0) + Number(data.other_charges_due_airline || 0) + Number(data.awb_fixed_fee || 0)),
       amendment_charges: f.amendment_charges || String(round2(Number(data.amendment_charges || 0))),
       form_e_usd_value:  f.form_e_usd_value  || data.form_e_usd_value || '',
       form_e_pkr_rate:   f.form_e_pkr_rate   || data.form_e_pkr_rate  || '',
@@ -162,7 +162,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
   const pkrRate       = Number(form.pkr_exchange_rate || 280)
   const freightAmount = round2(Number(form.chargeable_weight || 0) * Number(form.net_rate || 0))
   const formEAmount   = round2(Number(form.form_e_usd_value || 0) * Number(form.form_e_pkr_rate || 0))
-  const otherChgPkr   = round2(Number(form.other_charges || 0) * pkrRate)
+  const otherChgPkr   = round2(Number(form.other_charges || 0))
   const amendmentChg  = round2(Number(form.amendment_charges || 0))
   const adjAmount     = showAdj ? round2(Number(form.adjustment_amount || 0)) : 0
   const advanceAmount = showAdvance ? round2(Number(form.advance_payment_amount || 0)) : 0
@@ -304,12 +304,6 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
         </div>
 
         {/* ── Row 3: Pieces · Weight · Net Rate → Freight ───────────── */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={LBL}>USD → PKR Exchange Rate</label>
-            <input type="number" name="pkr_exchange_rate" step="0.01" min="1" className={INP} value={form.pkr_exchange_rate} onChange={set('pkr_exchange_rate')} placeholder="280.00" />
-          </div>
-        </div>
         <div className="grid grid-cols-4 gap-4">
           <div>
             <label className={LBL}>Pieces</label>
@@ -320,7 +314,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
             <input type="number" name="chargeable_weight" step="0.001" className={INP} value={form.chargeable_weight} onChange={set('chargeable_weight')} placeholder="0.000" />
           </div>
           <div>
-            <label className={LBL}>Net Rate (USD/kg)</label>
+            <label className={LBL}>Net Rate (PKR/kg)</label>
             <input type="number" name="net_rate" step="0.0001" className={INP} value={form.net_rate} onChange={set('net_rate')} placeholder="0.00" />
           </div>
           <div>
@@ -386,7 +380,7 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
         {/* ── Row 6: Airline Other Charges + Amendment ──────────────── */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={LBL}>Airline Other Charges + AWB Fee (USD)</label>
+            <label className={LBL}>Airline Other Charges + AWB Fee (PKR)</label>
             <input type="number" name="other_charges" step="0.01" className={INP} value={form.other_charges} onChange={set('other_charges')} placeholder="0.00" />
           </div>
           <div>
