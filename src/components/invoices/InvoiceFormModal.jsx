@@ -14,6 +14,14 @@ function today() {
   return new Date().toISOString().slice(0, 10)
 }
 
+function formatAWB(raw) {
+  // Keep only digits and letters, strip existing hyphens, then insert at positions 3 and 7
+  const clean = raw.replace(/-/g, '').slice(0, 11)
+  if (clean.length <= 3) return clean
+  if (clean.length <= 7) return `${clean.slice(0, 3)}-${clean.slice(3)}`
+  return `${clean.slice(0, 3)}-${clean.slice(3, 7)}-${clean.slice(7)}`
+}
+
 const BLANK = {
   client_id:                '',
   shipment_id:              null,
@@ -261,9 +269,14 @@ export function InvoiceFormModal({ mode, invoice, shipment, clients, clearingAge
               <input
                 className={INP + ' font-mono pr-24'}
                 value={form.awb_number}
-                onChange={(e) => { set('awb_number')(e); setAwbStatus(null) }}
+                onChange={(e) => {
+                  const formatted = formatAWB(e.target.value)
+                  setForm((f) => ({ ...f, awb_number: formatted }))
+                  setAwbStatus(null)
+                }}
                 onBlur={handleAwbBlur}
                 required
+                maxLength={13}
                 placeholder="e.g. 214-1234-5678"
               />
               {awbStatus === 'loading' && (
