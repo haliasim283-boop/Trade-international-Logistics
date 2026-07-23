@@ -15,24 +15,24 @@ function fmtDate(s) {
 
 // ── HTML builder (new print window) ──────────────────────────────────────────
 
-export function buildPrintHTML(entries, client, summary, dateLabel) {
+export function buildPrintHTML(entries, client, summary, dateLabel, awbFixedFee = 0) {
   const rows = entries.map((e) => {
     if (e.type === 'opening' || e.type === 'carry-forward') {
       return `
         <tr class="row-carry">
           <td>${fmtDate(e.date)}</td>
-          <td colspan="11" class="italic">${esc(e.description)}</td>
-          <td class="num">${fmt(e.balance)}</td>
+          <td colspan="12" class="italic">${esc(e.description)}</td>
+          <td class="num bold">${fmt(e.balance)}</td>
         </tr>`
     }
     if (e.type === 'payment') {
       return `
         <tr class="row-payment">
           <td>${fmtDate(e.date)}</td>
-          <td colspan="9">${esc(e.description)}</td>
+          <td colspan="10">${esc(e.description)}</td>
           <td></td>
-          <td class="num">${fmt(e.received)}</td>
-          <td class="num ${e.balance > 0 ? 'danger' : 'ok'}">${fmt(e.balance)}</td>
+          <td class="num bold">${fmt(e.received)}</td>
+          <td class="num bold ${e.balance > 0 ? 'danger' : 'ok'}">${fmt(e.balance)}</td>
         </tr>`
     }
     if (e.type === 'credit' || e.type === 'debit') {
@@ -40,25 +40,26 @@ export function buildPrintHTML(entries, client, summary, dateLabel) {
       return `
         <tr class="${isCredit ? 'row-credit' : 'row-debit'}">
           <td>${fmtDate(e.date)}</td>
-          <td colspan="9">${isCredit ? 'CREDIT: ' : 'DEBIT: '}${esc(e.description)}</td>
+          <td colspan="10">${isCredit ? 'CREDIT: ' : 'DEBIT: '}${esc(e.description)}</td>
           <td class="num bold">${isCredit ? fmt(e.receivable) : ''}</td>
           <td class="num bold">${!isCredit ? fmt(e.received) : ''}</td>
-          <td class="num ${e.balance > 0 ? 'danger' : 'ok'}">${fmt(e.balance)}</td>
+          <td class="num bold ${e.balance > 0 ? 'danger' : 'ok'}">${fmt(e.balance)}</td>
         </tr>`
     }
     // shipment
     return `
       <tr class="row-ship">
         <td>${fmtDate(e.date)}</td>
-        <td class="mono">${esc(e.awb_number)}</td>
-        <td>${esc(e.origin)}</td>
-        <td>${esc(e.destination)}</td>
+        <td class="mono bold">${esc(e.awb_number)}</td>
+        <td class="mono">${esc(e.origin)}</td>
+        <td class="mono">${esc(e.destination)}</td>
         <td class="num">${e.pieces ?? ''}</td>
         <td class="num">${Number(e.weight || 0).toFixed(3)}</td>
         <td class="num">${e.net_rate > 0 ? fmt(e.net_rate) : ''}</td>
         <td class="num">${e.clearing > 0 ? fmt(e.clearing) : ''}</td>
         <td class="num">${e.other > 0 ? fmt(e.other) : ''}</td>
         <td class="num">${e.form_e > 0 ? fmt(e.form_e) : ''}</td>
+        <td class="num">${fmt(awbFixedFee)}</td>
         <td class="num bold">${fmt(e.receivable)}</td>
         <td></td>
         <td class="num bold ${e.balance > 0 ? 'danger' : 'ok'}">${fmt(e.balance)}</td>
@@ -74,45 +75,42 @@ export function buildPrintHTML(entries, client, summary, dateLabel) {
   <title>Statement — ${esc(client.name)}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: Arial, Helvetica, sans-serif; font-size: 8.5px; color: #111; background: white; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 10.5px; color: #1f2937; background: white; -webkit-font-smoothing: antialiased; }
     @page { size: A4 landscape; margin: 8mm; }
 
-    .header { background: #1a2744; color: white; padding: 12px 16px; display: flex; justify-content: space-between; align-items: flex-start; }
-    .company-name { font-size: 13px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.04em; }
-    .company-addr { font-size: 7px; margin-top: 4px; opacity: 0.85; line-height: 1.6; }
+    .header { background: #1a2744; color: white; padding: 14px 18px; display: flex; justify-content: space-between; align-items: flex-start; }
+    .company-name { font-size: 15px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.04em; }
+    .company-addr { font-size: 8.5px; margin-top: 5px; color: #cbd5e1; line-height: 1.7; }
     .summary-box { text-align: right; }
-    .summary-title { font-size: 7px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }
-    .summary-grid { display: flex; gap: 16px; }
+    .summary-title { font-size: 8px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 7px; }
+    .summary-grid { display: flex; gap: 22px; }
     .sum-item { text-align: center; }
-    .sum-lbl { font-size: 6.5px; opacity: 0.7; text-transform: uppercase; }
-    .sum-val { font-size: 11px; font-weight: bold; font-family: 'Courier New', monospace; }
+    .sum-lbl { font-size: 7.5px; color: #cbd5e1; text-transform: uppercase; margin-bottom: 2px; }
+    .sum-val { font-size: 13px; font-weight: bold; font-family: 'Courier New', monospace; color: white; }
 
-    .client-bar { background: #f8fafc; border-bottom: 2px solid #1a2744; padding: 7px 16px; display: flex; justify-content: space-between; align-items: center; }
-    .client-title { font-size: 9px; font-weight: bold; color: #1a2744; text-transform: uppercase; letter-spacing: 0.05em; }
-    .date-range { font-size: 7.5px; color: #6b7280; }
+    .client-bar { background: #f8fafc; border-bottom: 2px solid #1a2744; padding: 8px 18px; display: flex; justify-content: space-between; align-items: center; }
+    .client-title { font-size: 10.5px; font-weight: bold; color: #1a2744; text-transform: uppercase; letter-spacing: 0.05em; }
+    .date-range { font-size: 9px; color: #6b7280; }
 
-    table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 6px; }
+    table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 0; border: 1px solid #d1d5db; }
     thead { display: table-header-group; }
     tr { page-break-inside: avoid; break-inside: avoid; }
-    th { background: #1a2744; color: white; padding: 5px 5px; font-size: 7px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    th { background: #1a2744; color: white; padding: 7px 6px; font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; text-align: left; border-right: 1px solid #2c3c63; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     th.num { text-align: right; }
-    td { padding: 4px 5px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
-    td.num { text-align: right; font-family: 'Courier New', monospace; }
-    td.mono { font-family: 'Courier New', monospace; font-weight: bold; }
-    td.bold { font-weight: 600; }
-    td.danger { color: #dc2626; }
-    td.ok { color: #16a34a; }
+    td { padding: 6px 6px; border-bottom: 1px solid #e5e7eb; border-right: 1px solid #f0f1f3; vertical-align: middle; font-size: 9.5px; color: #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    td.num { text-align: right; font-family: 'Courier New', monospace; font-weight: 700; }
+    td.mono { font-family: 'Courier New', monospace; font-weight: 700; }
+    td.bold { font-weight: 700; }
+    td.danger { color: #b91c1c; font-weight: 700; }
+    td.ok { color: #15803d; font-weight: 700; }
     td.italic { font-style: italic; color: #6b7280; }
 
-    .row-carry { background: #f3f4f6; }
-    .row-payment { background: #eff6ff; }
-    .row-payment td { color: #1d4ed8; }
-    .row-credit { background: #fff7ed; }
-    .row-credit td { color: #c2410c; }
-    .row-debit { background: #faf5ff; }
-    .row-debit td { color: #7e22ce; }
-    .row-ship { background: white; }
-    .row-ship:nth-child(even) { background: #fafafa; }
+    .row-carry td { background: #f3f4f6; color: #374151; }
+    .row-payment td { background: #eff6ff; color: #1d4ed8; }
+    .row-credit td { background: #fff7ed; color: #b45309; }
+    .row-debit td { background: #faf5ff; color: #7e22ce; }
+    .row-ship td { background: white; }
+    .row-ship:nth-child(even) td { background: #f8fafc; }
   </style>
 </head>
 <body>
@@ -151,21 +149,38 @@ export function buildPrintHTML(entries, client, summary, dateLabel) {
   </div>
 
   <table>
+    <colgroup>
+      <col style="width:7%">
+      <col style="width:10%">
+      <col style="width:4%">
+      <col style="width:4%">
+      <col style="width:4%">
+      <col style="width:7%">
+      <col style="width:7%">
+      <col style="width:8%">
+      <col style="width:8%">
+      <col style="width:7%">
+      <col style="width:7%">
+      <col style="width:9%">
+      <col style="width:9%">
+      <col style="width:9%">
+    </colgroup>
     <thead>
       <tr>
-        <th style="width:52px">Date</th>
-        <th style="width:76px">AWB No.</th>
-        <th style="width:24px">ORG</th>
-        <th style="width:24px">DST</th>
-        <th class="num" style="width:20px">PCS</th>
-        <th class="num" style="width:42px">Weight</th>
-        <th class="num" style="width:44px">Net Rate</th>
-        <th class="num" style="width:54px">Clrg Chrgs</th>
-        <th class="num" style="width:50px">Other Chrgs</th>
-        <th class="num" style="width:48px">Form E</th>
-        <th class="num" style="width:58px">Receivable</th>
-        <th class="num" style="width:58px">Received</th>
-        <th class="num" style="width:58px">Balance</th>
+        <th>Date</th>
+        <th>AWB No.</th>
+        <th>ORG</th>
+        <th>DST</th>
+        <th class="num">PCS</th>
+        <th class="num">Weight</th>
+        <th class="num">Net Rate</th>
+        <th class="num">Clrg Chrgs</th>
+        <th class="num">Other Chrgs</th>
+        <th class="num">Form E</th>
+        <th class="num">AWB Fee</th>
+        <th class="num">Receivable</th>
+        <th class="num">Received</th>
+        <th class="num">Balance</th>
       </tr>
     </thead>
     <tbody>

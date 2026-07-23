@@ -153,13 +153,13 @@ function statementFileName(clientName) {
   return `Statement-${clientName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.pdf`
 }
 
-async function buildStatementPdf(entries, client, summary, dateLabel) {
+async function buildStatementPdf(entries, client, summary, dateLabel, awbFixedFee) {
   const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
     import('html2canvas'),
     import('jspdf'),
   ])
 
-  const html = buildPrintHTML(entries, client, summary, dateLabel)
+  const html = buildPrintHTML(entries, client, summary, dateLabel, awbFixedFee)
 
   const PAGE_PX_WIDTH = 1123 // A4 landscape @ 96dpi
   const iframe = document.createElement('iframe')
@@ -186,7 +186,7 @@ async function buildStatementPdf(entries, client, summary, dateLabel) {
     .sort((a, b) => a - b)
 
   const canvas = await html2canvas(body, {
-    scale: 2,
+    scale: 3,
     useCORS: true,
     allowTaint: true,
     width: PAGE_PX_WIDTH,
@@ -275,6 +275,7 @@ export default function Ledgers() {
   const [client,      setClient]      = useState(null)
   const [entries,     setEntries]     = useState([])
   const [overdueDays, setOverdueDays] = useState(30)
+  const [awbFixedFee, setAwbFixedFee] = useState(0)
 
   const [loading,  setLoading]  = useState(false)
   const [saving,   setSaving]   = useState(false)
@@ -301,10 +302,11 @@ export default function Ledgers() {
     if (!supabase) return
     Promise.all([
       supabase.from('clients').select('id, name, contact_person, city').eq('is_active', true).order('name'),
-      supabase.from('company_settings').select('invoice_overdue_days').eq('id', 1).single(),
+      supabase.from('company_settings').select('invoice_overdue_days, default_awb_fixed_fee').eq('id', 1).single(),
     ]).then(([{ data: cData }, { data: settData }]) => {
       setAllClients(cData ?? [])
       setOverdueDays(settData?.invoice_overdue_days ?? 30)
+      setAwbFixedFee(Number(settData?.default_awb_fixed_fee ?? 0))
     })
   }, [])
 
@@ -500,7 +502,7 @@ export default function Ledgers() {
   async function handleDownloadStatementPDF() {
     setSendBusy(true)
     try {
-      const pdf = await buildStatementPdf(displayEntries, client, summary, dateLabel)
+      const pdf = await buildStatementPdf(displayEntries, client, summary, dateLabel, awbFixedFee)
       pdf.save(statementFileName(client.name))
     } catch (err) {
       alert('Could not generate the PDF: ' + err.message)
@@ -781,7 +783,7 @@ export default function Ledgers() {
         ) : (
           <Card>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ minWidth: 1160, width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <table style={{ minWidth: 1260, width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ backgroundColor: '#1a2744' }}>
                     {[
@@ -795,6 +797,7 @@ export default function Ledgers() {
                       { label: 'Clrg Chrgs',   align: 'right' },
                       { label: 'Other Chrgs',  align: 'right' },
                       { label: 'Form E',       align: 'right' },
+                      { label: 'AWB Fee',      align: 'right' },
                       { label: 'Receivable',   align: 'right' },
                       { label: 'Received',     align: 'right' },
                       { label: 'Balance',      align: 'right' },
@@ -828,7 +831,7 @@ export default function Ledgers() {
                             {fmtDate(e.date)}
                           </td>
                           <td
-                            colSpan={11}
+                            colSpan={12}
                             style={{ padding: '7px 10px', fontStyle: 'italic', color: '#6b7280', fontSize: 11 }}
                           >
                             {e.description}
@@ -849,7 +852,7 @@ export default function Ledgers() {
                             {fmtDate(e.date)}
                           </td>
                           <td
-                            colSpan={9}
+                            colSpan={10}
                             style={{ padding: '7px 10px', color: '#1d4ed8', fontSize: 11 }}
                           >
                             {e.description}
@@ -890,7 +893,7 @@ export default function Ledgers() {
                           <td style={{ padding: '7px 10px', whiteSpace: 'nowrap', color }}>
                             {fmtDate(e.date)}
                           </td>
-                          <td colSpan={9} style={{ padding: '7px 10px', color, fontSize: 11 }}>
+                          <td colSpan={10} style={{ padding: '7px 10px', color, fontSize: 11 }}>
                             {isCredit ? 'CREDIT: ' : 'DEBIT: '}{e.description}
                           </td>
                           <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color, whiteSpace: 'nowrap' }}>
@@ -939,6 +942,7 @@ export default function Ledgers() {
                         <td style={tdR}>{e.clearing > 0 ? fmt(e.clearing) : ''}</td>
                         <td style={tdR}>{e.other > 0 ? fmt(e.other) : ''}</td>
                         <td style={tdR}>{e.form_e > 0 ? fmt(e.form_e) : ''}</td>
+                        <td style={tdR}>{fmt(awbFixedFee)}</td>
                         <td style={{ ...tdR, fontWeight: 600 }}>{fmt(e.receivable)}</td>
                         <td style={tdS} /> {/* RECEIVED blank */}
                         <td style={{ ...tdR, fontWeight: 600, color: e.balance > 0 ? '#dc2626' : '#16a34a' }}>
