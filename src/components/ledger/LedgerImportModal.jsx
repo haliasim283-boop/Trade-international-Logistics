@@ -171,7 +171,7 @@ function findHeaderRowIndex(rows) {
 
 // ── Row parser ─────────────────────────────────────────────────────────────────
 
-function parseLedgerRows(rows, existingShipments, airlines, existingPayments, awbFixedFee) {
+function parseLedgerRows(rows, existingShipments, airlines, existingPayments, existingAdjustments, awbFixedFee) {
   const headerIdx = findHeaderRowIndex(rows)
   if (headerIdx === -1) {
     throw new Error('Could not find a header row with DATE and AWB NO. columns in the first 10 rows of the sheet. Check the file has those column headers.')
@@ -217,12 +217,18 @@ function parseLedgerRows(rows, existingShipments, airlines, existingPayments, aw
   const needsReview     = []  // can't safely update or create
   const payments        = []  // "amount received" rows to insert
   const duplicatePayments = []  // already recorded (in DB or earlier in this same file) — skipped
+  const needsClassification = []  // has a description + a non-zero amount, but isn't a shipment or "received" row — user picks Credit/Debit/Skip
+  const duplicateAdjustments = []  // already recorded as a credit/debit adjustment — skipped
   const skipped         = []  // blank / unparseable rows
 
   const existingPaymentSigs = new Set(
     (existingPayments ?? []).map(p => paymentSignature(p.payment_date, p.amount, p.description))
   )
+  const existingAdjSigs = new Set(
+    (existingAdjustments ?? []).map(a => paymentSignature(a.entry_date, a.amount, a.description))
+  )
   const seenInFile = new Set()
+  const seenAdjInFile = new Set()
 
   dataRows.forEach((row, idx) => {
     const rowNum = idx + 2
@@ -344,11 +350,53 @@ function parseLedgerRows(rows, existingShipments, airlines, existingPayments, aw
         description,
       })
     } else {
-      skipped.push({ rowNum, reason: 'Blank / unrecognised row', text: awbRaw })
+      // ── Neither a shipment nor a "received" row — might be a manual credit/debit
+      // entry (refund, deduction, loan, etc.) recorded in a different column. We
+      // can't safely guess which side of the ledger it belongs on, so surface it
+      // for the user to classify instead of silently dropping or misfiling it.
+      const description = awbRaw
+      if (!date || !description) {
+        skipped.push({ rowNum, reason: !date ? 'No valid date' : 'Blank / unrecognised row', text: awbRaw })
+        return
+      }
+
+      const receivableVal = iRECEIVABLE >= 0 ? num(row[iRECEIVABLE]) : 0
+      const otherVal      = iOTHER      >= 0 ? num(row[iOTHER])      : 0
+      const clearingVal   = iCLEARING   >= 0 ? num(row[iCLEARING])   : 0
+      const formEVal      = iFORME      >= 0 ? num(row[iFORME])      : 0
+
+      let amount = 0
+      for (const v of [receivableVal, otherVal, clearingVal, formEVal]) {
+        if (Math.abs(v) > Math.abs(amount)) amount = v
+      }
+      if (amount === 0) {
+        // Fallback: some sheets don't use the standard column set at all — scan
+        // every other cell in the row for the largest non-zero number.
+        for (let ci = 0; ci < row.length; ci++) {
+          if (ci === iDATE || ci === iAWB) continue
+          const v = num(row[ci])
+          if (Math.abs(v) > Math.abs(amount)) amount = v
+        }
+      }
+
+      if (amount === 0) {
+        skipped.push({ rowNum, reason: 'Blank / unrecognised row', text: awbRaw })
+        return
+      }
+
+      amount = Math.abs(Math.round(amount * 100) / 100)
+      const sig = paymentSignature(date, amount, description)
+      if (existingAdjSigs.has(sig) || seenAdjInFile.has(sig)) {
+        duplicateAdjustments.push({ rowNum, date, amount, description })
+        return
+      }
+      seenAdjInFile.add(sig)
+
+      needsClassification.push({ rowNum, date, amount, description })
     }
   })
 
-  return { shipmentUpdates, shipmentCreates, needsReview, payments, duplicatePayments, skipped }
+  return { shipmentUpdates, shipmentCreates, needsReview, payments, duplicatePayments, needsClassification, duplicateAdjustments, skipped }
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -361,6 +409,7 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
   const [result,    setResult]    = useState(null)
   const [error,     setError]     = useState(null)
   const [showAll,   setShowAll]   = useState(false)
+  const [classifications, setClassifications] = useState({}) // rowNum -> { type: 'skip'|'credit'|'debit', amount }
   const fileRef = useRef()
 
   const processFile = useCallback((file) => {
@@ -374,21 +423,27 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
         { data: existingShipments, error: shErr },
         { data: airlines, error: alErr },
         { data: existingPayments, error: payErr },
+        { data: existingAdjustments, error: adjErr },
         { data: companySettings, error: csErr },
       ] = await Promise.all([
         supabase.from('shipments').select('id, awb_number, chargeable_weight').eq('client_id', clientId),
         supabase.from('airlines').select('id, name, iata_prefix'),
         supabase.from('client_payments').select('payment_date, amount, description').eq('client_id', clientId),
+        supabase.from('client_ledger_adjustments').select('entry_date, amount, description').eq('client_id', clientId),
         supabase.from('company_settings').select('default_awb_fixed_fee').eq('id', 1).single(),
       ])
       if (shErr) { setError(shErr.message); return }
       if (alErr) { setError(alErr.message); return }
       if (payErr) { setError(payErr.message); return }
+      if (adjErr) { setError(adjErr.message); return }
       if (csErr) { setError(csErr.message); return }
       const awbFixedFee = Number(companySettings?.default_awb_fixed_fee ?? 0)
       try {
-        const result = parseLedgerRows(rows, existingShipments ?? [], airlines ?? [], existingPayments ?? [], awbFixedFee)
+        const result = parseLedgerRows(rows, existingShipments ?? [], airlines ?? [], existingPayments ?? [], existingAdjustments ?? [], awbFixedFee)
         setParsed(result)
+        setClassifications(Object.fromEntries(
+          result.needsClassification.map(r => [r.rowNum, { type: 'skip', amount: r.amount }])
+        ))
         setStep('preview')
       } catch (err) {
         setError(err.message)
@@ -497,11 +552,40 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
       }
     }
 
-    setResult({ updated, created, inserted, updateErrors, createErrors, paymentErrors })
+    let classified = 0
+    const adjustmentErrors = []
+    const adjPayload = parsed.needsClassification
+      .map(r => ({ r, cls: classifications[r.rowNum] ?? { type: 'skip', amount: r.amount } }))
+      .filter(({ cls }) => cls.type === 'credit' || cls.type === 'debit')
+      .map(({ r, cls }) => ({
+        client_id:   clientId,
+        type:        cls.type,
+        entry_date:  r.date,
+        amount:      Number(cls.amount) || 0,
+        description: r.description,
+        notes:       null,
+      }))
+      .filter(row => row.amount > 0)
+
+    if (adjPayload.length > 0) {
+      const CHUNK3 = 100
+      for (let i = 0; i < adjPayload.length; i += CHUNK3) {
+        const chunk = adjPayload.slice(i, i + CHUNK3)
+        const { data, error: err } = await supabase.from('client_ledger_adjustments').insert(chunk).select('id')
+        if (err) adjustmentErrors.push(err.message)
+        else classified += data?.length ?? 0
+      }
+    }
+
+    setResult({ updated, created, inserted, classified, updateErrors, createErrors, paymentErrors, adjustmentErrors })
     setImporting(false)
     setStep('done')
-    if (updated > 0 || created > 0 || inserted > 0) onImported()
+    if (updated > 0 || created > 0 || inserted > 0 || classified > 0) onImported()
   }
+
+  const classifyCount = parsed
+    ? parsed.needsClassification.filter((r) => (classifications[r.rowNum]?.type ?? 'skip') !== 'skip').length
+    : 0
 
   return (
     <Modal title={`Import Ledger Sheet — ${clientName}`} onClose={onClose} size="xl">
@@ -512,7 +596,9 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
             Upload this client's ledger Excel sheet. Rows with an AWB number update that shipment's
             rates/charges if it's already in the Master Shipment Log — and if it isn't, one is
             created directly from this sheet (airline resolved from the AWB prefix, same as the
-            Master Log importer). Rows like "AMOUNT RECEIVED ..." are recorded as payments.
+            Master Log importer). Rows like "AMOUNT RECEIVED ..." are recorded as payments. Any other
+            row with a description and an amount (refunds, deductions, manual adjustments, etc.) is
+            shown to you before import so you can choose whether it's a Credit, a Debit, or should be skipped.
           </p>
 
           {error && (
@@ -539,7 +625,7 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
 
       {step === 'preview' && parsed && (
         <div className="space-y-4">
-          <div className="grid grid-cols-6 gap-3">
+          <div className="grid grid-cols-4 gap-3">
             <div className="bg-green-50 border border-green-200 rounded-lg p-3">
               <p className="text-sm font-semibold text-green-800">{parsed.shipmentUpdates.length} rate updates</p>
               <p className="text-xs text-green-600">Matched existing shipments</p>
@@ -552,8 +638,12 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
               <p className="text-sm font-semibold text-blue-800">{parsed.payments.length} payments</p>
               <p className="text-xs text-blue-600">Will be recorded on the ledger</p>
             </div>
+            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+              <p className="text-sm font-semibold text-indigo-800">{parsed.needsClassification.length} credit/debit?</p>
+              <p className="text-xs text-indigo-600">Choose Credit/Debit/Skip below</p>
+            </div>
             <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-              <p className="text-sm font-semibold text-purple-800">{parsed.duplicatePayments.length} duplicates</p>
+              <p className="text-sm font-semibold text-purple-800">{parsed.duplicatePayments.length + parsed.duplicateAdjustments.length} duplicates</p>
               <p className="text-xs text-purple-600">Already recorded — will be skipped</p>
             </div>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
@@ -582,6 +672,59 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
                         <td className="px-3 py-1.5 text-amber-600 italic">{r.reason}</td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {parsed.needsClassification.length > 0 && (
+            <div className="border border-indigo-200 rounded-lg overflow-hidden">
+              <div className="bg-indigo-50 px-3 py-2 border-b border-indigo-200 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-indigo-600" />
+                <span className="text-xs font-semibold text-indigo-800">
+                  Not a shipment or a payment — choose how to import each row (defaults to Skip)
+                </span>
+              </div>
+              <div className="overflow-auto max-h-56">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 sticky top-0 border-b border-gray-200">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-gray-500">Date</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-500">Description</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-500">Amount</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-500">Import as</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-indigo-100">
+                    {parsed.needsClassification.map((r) => {
+                      const cls = classifications[r.rowNum] ?? { type: 'skip', amount: r.amount }
+                      return (
+                        <tr key={r.rowNum} className={cls.type === 'skip' ? '' : 'bg-indigo-50/40'}>
+                          <td className="px-3 py-1.5 whitespace-nowrap text-gray-700">{r.date}</td>
+                          <td className="px-3 py-1.5 text-gray-700">{r.description}</td>
+                          <td className="px-3 py-1.5 text-right">
+                            <input
+                              type="number" step="0.01"
+                              className="w-24 border border-gray-300 rounded px-1.5 py-0.5 text-right text-xs focus:outline-none focus:ring-1 focus:ring-accent"
+                              value={cls.amount}
+                              onChange={(e) => setClassifications((c) => ({ ...c, [r.rowNum]: { ...cls, amount: e.target.value } }))}
+                            />
+                          </td>
+                          <td className="px-3 py-1.5">
+                            <select
+                              className="border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-accent"
+                              value={cls.type}
+                              onChange={(e) => setClassifications((c) => ({ ...c, [r.rowNum]: { ...cls, type: e.target.value } }))}
+                            >
+                              <option value="skip">Skip</option>
+                              <option value="credit">Credit (adds to balance)</option>
+                              <option value="debit">Debit (reduces balance)</option>
+                            </select>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -642,9 +785,9 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
             </button>
             <div className="flex gap-3">
               <Button variant="secondary" onClick={onClose}>Cancel</Button>
-              <Button onClick={handleImport} disabled={importing || (parsed.shipmentUpdates.length === 0 && parsed.shipmentCreates.length === 0 && parsed.payments.length === 0)}>
+              <Button onClick={handleImport} disabled={importing || (parsed.shipmentUpdates.length === 0 && parsed.shipmentCreates.length === 0 && parsed.payments.length === 0 && classifyCount === 0)}>
                 {importing && <Spinner size="sm" />}
-                Import {parsed.shipmentUpdates.length} updates + {parsed.shipmentCreates.length} new + {parsed.payments.length} payments
+                Import {parsed.shipmentUpdates.length} updates + {parsed.shipmentCreates.length} new + {parsed.payments.length} payments{classifyCount > 0 ? ` + ${classifyCount} credit/debit` : ''}
               </Button>
             </div>
           </div>
@@ -656,7 +799,7 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
           <CheckCircle className="w-14 h-14 text-green-500 mx-auto" />
           <div>
             <p className="text-xl font-bold text-gray-800">
-              {result.updated} updated · {result.created} created · {result.inserted} payments recorded
+              {result.updated} updated · {result.created} created · {result.inserted} payments recorded · {result.classified} credit/debit recorded
             </p>
             {result.updateErrors.length > 0 && (
               <div className="mt-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 text-left">
@@ -671,6 +814,11 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
             {result.paymentErrors.length > 0 && (
               <div className="mt-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 text-left">
                 <strong>{result.paymentErrors.length} payment error(s):</strong> {result.paymentErrors.join('; ')}
+              </div>
+            )}
+            {result.adjustmentErrors.length > 0 && (
+              <div className="mt-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 text-left">
+                <strong>{result.adjustmentErrors.length} credit/debit error(s):</strong> {result.adjustmentErrors.join('; ')}
               </div>
             )}
           </div>

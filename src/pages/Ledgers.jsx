@@ -519,12 +519,14 @@ export default function Ledgers() {
   // ── Data Entry simplified view ────────────────────────────────────────────
 
   if (isDataEntry) {
+    const dataEntryPayments = entries.filter((e) => e.type === 'payment')
+
     return (
       <>
         <div className="p-6 space-y-5">
           <div>
             <h1 className="text-2xl font-bold text-navy tracking-tight">Record Client Payment</h1>
-            <p className="text-sm text-gray-500 mt-0.5">Select a client and record a payment.</p>
+            <p className="text-sm text-gray-500 mt-0.5">Select a client, record a payment, or fix a mistake in one you already entered.</p>
           </div>
 
           <Card>
@@ -550,23 +552,51 @@ export default function Ledgers() {
           </Card>
 
           {selClientId && (
-            <div className="relative rounded-xl overflow-hidden">
-              <div className="blur-sm pointer-events-none select-none opacity-60">
-                <div className="bg-gray-100 rounded-lg h-64 flex items-center justify-center">
-                  <div className="space-y-3 w-full px-8">
-                    {[...Array(5)].map((_, i) => (
-                      <div key={i} className="h-4 bg-gray-300 rounded w-full" />
-                    ))}
-                  </div>
-                </div>
+            <Card>
+              <div className="px-4 py-3 border-b border-gray-100">
+                <p className="text-sm font-semibold text-navy">Payments recorded</p>
+                <p className="text-xs text-gray-400 mt-0.5">Shipment charges and balances aren't shown here — only the payments you've recorded.</p>
               </div>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="bg-white/90 rounded-xl px-8 py-5 text-center shadow-lg border border-gray-200">
-                  <p className="text-sm font-semibold text-navy">Ledger details are restricted</p>
-                  <p className="text-xs text-gray-500 mt-1">Use the button above to record a payment.</p>
+              {loading ? (
+                <div className="flex justify-center py-10"><Spinner size="lg" /></div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Date</th>
+                        <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Description</th>
+                        <th className="text-right px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Amount</th>
+                        <th className="px-4 py-2" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {dataEntryPayments.map((e) => (
+                        <tr key={e.id}>
+                          <td className="px-4 py-2 whitespace-nowrap text-gray-700">{fmtDate(e.date)}</td>
+                          <td className="px-4 py-2 text-gray-700">{e.description}</td>
+                          <td className="px-4 py-2 text-right font-mono text-success">{fmt(e.received)}</td>
+                          <td className="px-4 py-2 text-right">
+                            <button
+                              title="Edit payment"
+                              onClick={() => setEditPayment(e)}
+                              className="p-1 rounded hover:bg-blue-100 text-gray-400 hover:text-blue-600 transition-colors"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {dataEntryPayments.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="px-4 py-8 text-center text-gray-400 text-sm">No payments recorded yet.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
-            </div>
+              )}
+            </Card>
           )}
         </div>
 
@@ -575,6 +605,16 @@ export default function Ledgers() {
             clientId={selClientId}
             onSave={handleAddPayment}
             onClose={() => setPaymentModal(false)}
+            saving={saving}
+          />
+        )}
+
+        {editPayment && (
+          <PaymentModal
+            clientId={selClientId}
+            existing={editPayment}
+            onUpdate={handleUpdatePayment}
+            onClose={() => setEditPayment(null)}
             saving={saving}
           />
         )}

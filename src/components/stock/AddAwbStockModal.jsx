@@ -7,6 +7,24 @@ import { normalizeAwb } from '../../lib/awbStock'
 
 const INP = 'w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent'
 const MAX_RANGE = 500
+const PREFIX_RE = /^\d{3}-\d{4}$/
+const SERIAL_RE = /^\d{4}$/
+
+// Keeps only digits and a single hyphen, capped at 3 digits before it and
+// 4 after — matches the XXX-XXXX prefix format (e.g. "157-9678").
+function sanitizePrefixInput(raw) {
+  const cleaned = raw.replace(/[^\d-]/g, '')
+  const hyphenIdx = cleaned.indexOf('-')
+  if (hyphenIdx === -1) return cleaned.slice(0, 3)
+  const before = cleaned.slice(0, hyphenIdx).slice(0, 3)
+  const after  = cleaned.slice(hyphenIdx + 1).replace(/-/g, '').slice(0, 4)
+  return `${before}-${after}`
+}
+
+// Serials are always exactly 4 digits — strip anything else as the user types.
+function sanitizeSerialInput(raw) {
+  return raw.replace(/\D/g, '').slice(0, 4)
+}
 
 function Field({ label, required, children, hint }) {
   return (
@@ -33,10 +51,20 @@ function generateRange(startStr, endStr, stepStr) {
   return out
 }
 
+// Splits pasted serials into valid 4-digit numbers and everything else, so
+// the UI can tell the user exactly what got ignored instead of silently
+// accepting arbitrary text as an AWB serial.
 function parseManualList(text) {
-  return [...new Set(
+  const entries = [...new Set(
     text.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean)
   )]
+  const valid = []
+  const invalid = []
+  for (const s of entries) {
+    if (SERIAL_RE.test(s)) valid.push(s)
+    else invalid.push(s)
+  }
+  return { valid, invalid }
 }
 
 // Prefer the saved default batch prefix; otherwise fall back to the
@@ -51,7 +79,7 @@ function defaultPrefixFor(airline) {
 export function AddAwbStockModal({ airlines, defaultAirlineId, existingAwbMap, onSave, onClose, saving }) {
   const [tab, setTab] = useState('range') // 'range' | 'manual'
   const [airlineId, setAirlineId] = useState(defaultAirlineId ?? airlines[0]?.id ?? '')
-  const [prefix, setPrefix] = useState(() => defaultPrefixFor(airlines.find((a) => a.id === defaultAirlineId)))
+  const [prefix, setPrefix] = useState(() => sanitizePrefixInput(defaultPrefixFor(airlines.find((a) => a.id === defaultAirlineId))))
   const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10))
   const [notes, setNotes] = useState('')
 
@@ -62,12 +90,17 @@ export function AddAwbStockModal({ airlines, defaultAirlineId, existingAwbMap, o
 
   function onAirlineChange(id) {
     setAirlineId(id)
-    setPrefix(defaultPrefixFor(airlines.find((x) => x.id === id)))
+    setPrefix(sanitizePrefixInput(defaultPrefixFor(airlines.find((x) => x.id === id))))
   }
 
+  const manualParsed = useMemo(() => parseManualList(manualText), [manualText])
+
   const serials = useMemo(() => {
-    return tab === 'range' ? generateRange(rangeStart, rangeEnd, rangeStep) : parseManualList(manualText)
-  }, [tab, rangeStart, rangeEnd, rangeStep, manualText])
+    return tab === 'range' ? generateRange(rangeStart, rangeEnd, rangeStep) : manualParsed.valid
+  }, [tab, rangeStart, rangeEnd, rangeStep, manualParsed])
+
+  const prefixValid = PREFIX_RE.test(prefix.trim())
+  const rangeSerialsValid = tab !== 'range' || (SERIAL_RE.test(rangeStart) && SERIAL_RE.test(rangeEnd))
 
   const rangeTooLarge = tab === 'range' &&
     Number.isFinite(parseInt(rangeStart, 10)) && Number.isFinite(parseInt(rangeEnd, 10)) &&
@@ -100,7 +133,7 @@ export function AddAwbStockModal({ airlines, defaultAirlineId, existingAwbMap, o
   }, [serials, cleanPrefix, existingAwbMap, airlines])
 
   const newCount = newSerials.length
-  const canSave = !saving && airlineId && cleanPrefix && serials.length > 0 && newCount > 0 && !rangeTooLarge
+  const canSave = !saving && airlineId && prefixValid && rangeSerialsValid && serials.length > 0 && newCount > 0 && !rangeTooLarge
 
   function handleSave() {
     const rows = newSerials.map((s) => ({
@@ -122,8 +155,17 @@ export function AddAwbStockModal({ airlines, defaultAirlineId, existingAwbMap, o
               {airlines.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.iata_prefix})</option>)}
             </select>
           </Field>
-          <Field label="Prefix" required hint="e.g. 157-9678 — stays the same across a batch">
-            <input className={INP} value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="157-9678" />
+          <Field label="Prefix" required hint="3 digits, hyphen, 4 digits — stays the same across a batch">
+            <input
+              className={`${INP} font-mono`}
+              value={prefix}
+              onChange={(e) => setPrefix(sanitizePrefixInput(e.target.value))}
+              placeholder="157-9678"
+              maxLength={8}
+            />
+            {prefix && !prefixValid && (
+              <p className="text-xs text-danger mt-1">Must be exactly 3 digits, a hyphen, then 4 digits (e.g. 157-9678).</p>
+            )}
           </Field>
         </div>
 
@@ -153,20 +195,40 @@ export function AddAwbStockModal({ airlines, defaultAirlineId, existingAwbMap, o
         {tab === 'range' ? (
           <div className="grid grid-cols-3 gap-4">
             <Field label="Start Serial" required>
-              <input className={`${INP} font-mono`} value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} placeholder="4714" />
+              <input className={`${INP} font-mono`} value={rangeStart}
+                onChange={(e) => setRangeStart(sanitizeSerialInput(e.target.value))} placeholder="4714" maxLength={4} />
             </Field>
             <Field label="End Serial" required>
-              <input className={`${INP} font-mono`} value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} placeholder="4806" />
+              <input className={`${INP} font-mono`} value={rangeEnd}
+                onChange={(e) => setRangeEnd(sanitizeSerialInput(e.target.value))} placeholder="4806" maxLength={4} />
             </Field>
             <Field label="Step">
               <input type="number" min="1" className={`${INP} font-mono`} value={rangeStep} onChange={(e) => setRangeStep(e.target.value)} />
             </Field>
+            {!rangeSerialsValid && (rangeStart || rangeEnd) && (
+              <p className="text-xs text-danger -mt-2 col-span-3">Start and End Serial must each be exactly 4 digits.</p>
+            )}
           </div>
         ) : (
-          <Field label="AWB Serials" required hint="One per line, or comma-separated">
+          <Field label="AWB Serials" required hint="4-digit numbers only — one per line, or comma-separated">
             <textarea className={`${INP} font-mono`} rows={6} value={manualText} onChange={(e) => setManualText(e.target.value)}
               placeholder={'4714\n4725\n4736'} />
           </Field>
+        )}
+
+        {tab === 'manual' && manualParsed.invalid.length > 0 && (
+          <div className="flex gap-2 bg-red-50 border border-red-200 rounded-md px-3 py-2.5">
+            <AlertTriangle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-red-800 min-w-0">
+              <p className="font-medium">
+                {manualParsed.invalid.length} entr{manualParsed.invalid.length !== 1 ? 'ies' : 'y'} ignored — must be exactly 4 digits:
+              </p>
+              <p className="mt-1 font-mono text-xs text-red-700 break-words">
+                {manualParsed.invalid.slice(0, 10).join(', ')}
+                {manualParsed.invalid.length > 10 && ` +${manualParsed.invalid.length - 10} more`}
+              </p>
+            </div>
+          </div>
         )}
 
         {rangeTooLarge ? (
