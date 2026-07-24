@@ -35,6 +35,22 @@ function currentMonth() {
   return { from: `${y}-${ms}-01`, to: now.toISOString().slice(0, 10) }
 }
 
+// Supabase caps any single request at its project "Max Rows" setting (1000 by
+// default) — fetch in pages until a short page tells us we've got everything.
+async function fetchAllRows(buildQuery) {
+  const CHUNK = 1000
+  let all = []
+  let from = 0
+  while (true) {
+    const { data, error } = await buildQuery().range(from, from + CHUNK - 1)
+    if (error) return { data: null, error }
+    all = all.concat(data ?? [])
+    if (!data || data.length < CHUNK) break
+    from += CHUNK
+  }
+  return { data: all, error: null }
+}
+
 // ── KPI Card ──────────────────────────────────────────────────────────────────
 
 function KPICard({ label, value, sub, color, onClick }) {
@@ -103,17 +119,17 @@ export default function Dashboard() {
         { data: recent,      error: e12 },
       ] = await Promise.all([
         // All shipments for total receivable + status + clearing + form E calculations
-        supabase.from('shipments').select(
+        fetchAllRows(() => supabase.from('shipments').select(
           'id,client_id,flight_date,status,total_receivable,form_e_amount_pkr,clearing_charges,clearing_agents(is_in_house)'
-        ),
+        )),
         // All client payments (for outstanding calculation)
-        supabase.from('client_payments').select('client_id,amount'),
+        fetchAllRows(() => supabase.from('client_payments').select('client_id,amount')),
         // Opening balances
-        supabase.from('client_opening_balances').select('client_id,amount'),
+        fetchAllRows(() => supabase.from('client_opening_balances').select('client_id,amount')),
         // All form E payments
-        supabase.from('form_e_payments').select('amount'),
+        fetchAllRows(() => supabase.from('form_e_payments').select('amount')),
         // All clearing agent payments
-        supabase.from('clearing_agent_payments').select('amount'),
+        fetchAllRows(() => supabase.from('clearing_agent_payments').select('amount')),
         // Current fortnight shipments (for CASS estimate)
         supabase.from('shipments')
           .select('chargeable_weight,pkr_exchange_rate,airlines(cass_commission_usd_per_kg)')
@@ -122,7 +138,7 @@ export default function Dashboard() {
         supabase.from('cass_payments')
           .select('amount').gte('payment_date', ft.from).lte('payment_date', ft.to),
         // All active clients (for overdue computation)
-        supabase.from('clients').select('id,name,credit_terms_days').eq('is_active', true),
+        fetchAllRows(() => supabase.from('clients').select('id,name,credit_terms_days').eq('is_active', true)),
         // Current month expenses
         supabase.from('expenses').select('amount').gte('expense_date', mn.from).lte('expense_date', mn.to),
         // Current month income (client payments)
