@@ -32,6 +32,27 @@ function coerceField(field, raw) {
   return raw
 }
 
+// Supabase caps any single request at its project "Max Rows" setting (1000 by
+// default) — fetch in pages until a short page tells us we've got everything.
+async function fetchAllShipments() {
+  const CHUNK = 1000
+  let all = []
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('shipments')
+      .select(SHIPMENT_SELECT)
+      .order('flight_date', { ascending: false })
+      .order('created_at',  { ascending: false })
+      .range(from, from + CHUNK - 1)
+    if (error) return { data: null, error }
+    all = all.concat(data ?? [])
+    if (!data || data.length < CHUNK) break
+    from += CHUNK
+  }
+  return { data: all, error: null }
+}
+
 // ── Inline-editable table cell ──────────────────────────────────────────────
 function EditableCell({ value, display, type = 'text', options, onSave, align, step, disabled }) {
   const [editing, setEditing] = useState(false)
@@ -242,11 +263,7 @@ export default function Shipments() {
       { data: settData },
       { data: saData },
     ] = await Promise.all([
-      supabase
-        .from('shipments')
-        .select(SHIPMENT_SELECT)
-        .order('flight_date', { ascending: false })
-        .order('created_at',  { ascending: false }),
+      fetchAllShipments(),
       supabase.from('airlines').select('*').eq('is_active', true).order('name'),
       supabase.from('clients').select('id, name').eq('is_active', true).order('name'),
       supabase.from('clearing_agents').select('*').eq('is_active', true).order('city'),
