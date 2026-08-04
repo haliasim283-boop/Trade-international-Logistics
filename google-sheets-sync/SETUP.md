@@ -1,11 +1,13 @@
-# Google Sheet → Master Shipment Log
+# Google Sheet ⇄ Master Shipment Log
 
-Your client keeps a Google Sheet. Rows they enter land in the Master Shipment
-Log automatically. Shipments are matched on **AWB Number**, so syncing the same
-row twice updates it instead of creating a duplicate.
+Your client keeps a Google Sheet. It syncs **both ways**: rows they enter land in
+the Master Shipment Log, and shipments added or edited on the Master Shipment
+page come back down into their sheet. Shipments are matched on **AWB Number** in
+both directions, so syncing the same row twice updates it instead of creating a
+duplicate.
 
 ```
-Google Sheet  →  Apps Script (Google's servers)  →  Supabase  →  Master Shipment page
+Google Sheet  ⇄  Apps Script (Google's servers)  ⇄  Supabase  ⇄  Master Shipment page
 ```
 
 Nothing runs in the browser, so no keys are ever exposed to visitors of the site.
@@ -31,6 +33,12 @@ Then do the same with
 That one adds `export_shipments_to_sheet`, which is what fills a new sheet with
 the shipments you already have (see [Starting from your existing
 shipments](#starting-from-your-existing-shipments)). It is read-only.
+
+Finally
+[`supabase/migrations/009_sheet_pull_changes.sql`](../supabase/migrations/009_sheet_pull_changes.sql).
+That adds `export_shipments_changed_since` — the "what's new since last time"
+query behind the downward half of the sync (see [Changes flowing back
+down](#changes-flowing-back-down)). Also read-only.
 
 ### 2 — Set the shared secret
 
@@ -79,7 +87,53 @@ Then run **TIL Sync ▸ Test connection**. You want "Connected."
 **TIL Sync ▸ Turn ON auto-sync (every 15 min)**. Google asks for authorisation
 the first time — it is your own script, so approve it.
 
-Your client can still hit **Sync Now** any time they don't want to wait.
+Each cycle does two things, in this order: **push** what the sheet has, then
+**pull** what the system has. Your client can still hit **Sync Now** or **Pull
+updates from system** any time they don't want to wait.
+
+---
+
+## Changes flowing back down
+
+A shipment added on the Master Shipment page appears in the client's sheet within
+15 minutes. So does an edit — change a net rate on the website and the sheet's
+cell follows.
+
+**New AWBs are appended at the bottom** of the sheet. **AWBs the sheet already
+has are rewritten in place**, in whatever row they already sit in. Nothing is
+ever cleared, and rows your client typed that have not reached the server yet are
+left alone.
+
+Rows that came down are marked `OK — from system` in the Sync Status column.
+
+**If the same AWB was changed in both places in the same 15 minutes, the system
+wins.** The push runs first, so the client's edit reaches the server and is
+applied there; then the pull brings back whatever the system ended up holding.
+The client's edit is not lost — it just arrives back through the system, and the
+website's validation and calculated totals have the last word.
+
+**Deletes still do not propagate, in either direction.** A shipment deleted on
+the website leaves its row sitting in the sheet. Delete that row by hand.
+
+### The first pull
+
+Run **TIL Sync ▸ Pull updates from system** once by hand. It asks how far back to
+go:
+
+- **YES** — merge every shipment in the system into the sheet now, matched on
+  AWB. Use this if the sheet has drifted and you want it reconciled.
+- **NO** — start from this moment. Only changes made from now on come down.
+
+You don't need to do this if you ran **Import existing shipments from system**
+first — that already leaves the sheet in step with the system and sets the
+starting point for you.
+
+Auto-sync never makes this choice on its own. If the trigger runs before anyone
+has pulled by hand, it quietly sets the starting point to right now and merges
+nothing, so a timer can never dump the whole log into the sheet unannounced.
+
+To start over, run **TIL Sync ▸ Pull updates from system** after clearing the
+saved starting point (Extensions ▸ Apps Script ▸ run `resetPullWatermark`).
 
 ---
 
@@ -179,8 +233,8 @@ Valid Status values: `PNDNG` · `AP-BLZ` · `BKD` · `CNCLD` · `NO SHOW` ·
 
 Three columns appear on the right after the first sync:
 
-- **Sync Status** — `OK — created`, `OK — updated`, `OK — imported`, or
-  `ERROR — <reason>` in red
+- **Sync Status** — `OK — created`, `OK — updated`, `OK — imported`,
+  `OK — from system`, or `ERROR — <reason>` in red
 - **Last Synced** — timestamp
 - **Row Hash** — hidden bookkeeping; ignore it
 
@@ -210,7 +264,12 @@ Only cells with something in them overwrite.
 **Deletes do not propagate.** Deleting a sheet row leaves the shipment in place.
 This is deliberate — shipments are referenced by invoices and ledger entries, and
 an accidental row delete should not take those down. Cancel a shipment by setting
-its status to `CNCLD` instead.
+its status to `CNCLD` instead. It works the same way round: deleting a shipment
+on the website leaves its row in the sheet.
+
+**Rows that came down are not sent back up.** Each merged row is stamped so the
+next push treats it as already in sync. Edit one afterwards and only that row
+goes back, exactly as if it had been typed by hand.
 
 **Unchanged rows are skipped.** The sync only sends rows whose content changed,
 so a 2,000-row sheet costs one small request per run. **Re-sync ALL rows** forces
@@ -228,13 +287,14 @@ The anon key sits in the sheet's Script Properties, which is standard — it is
 already public in the website bundle and grants nothing on its own, because RLS
 requires an authenticated session for every table.
 
-The only two things the sheet can do are call `sync_shipments_from_sheet` and
-`export_shipments_to_sheet`, and only with the shared secret. Between them they
-can write shipments and read shipments plus the party names attached to them.
-Neither can read invoices, ledgers, payments or your client list wholesale, and
-neither can delete anything. The `service_role` key is never involved.
+The only three things the sheet can do are call `sync_shipments_from_sheet`,
+`export_shipments_to_sheet` and `export_shipments_changed_since`, and only with
+the shared secret. Between them they can write shipments and read shipments plus
+the party names attached to them. None can read invoices, ledgers, payments or
+your client list wholesale, and none can delete anything. The `service_role` key
+is never involved.
 
-Note that the export function does hand back the whole shipment log to anyone
+Note that the two export functions do hand back the whole shipment log to anyone
 holding the secret — which is the same thing the sheet itself shows, so it moves
 no line, but it is a reason to keep the secret to yourself rather than the sheet's
 editors.
@@ -248,6 +308,7 @@ If the secret ever leaks, re-run step 2 with a new string and redo step 5.
 ```sql
 DROP FUNCTION IF EXISTS sync_shipments_from_sheet(TEXT, JSONB);
 DROP FUNCTION IF EXISTS export_shipments_to_sheet(TEXT, INT, INT);
+DROP FUNCTION IF EXISTS export_shipments_changed_since(TEXT, TIMESTAMPTZ, INT, INT, TEXT[]);
 DROP FUNCTION IF EXISTS til_safe_numeric(TEXT);
 DROP TABLE IF EXISTS integration_settings;
 ```

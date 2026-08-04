@@ -1,11 +1,24 @@
 /**
- * Trade International Logistics — Google Sheet → Master Shipment Log
+ * Trade International Logistics — Google Sheet ⇄ Master Shipment Log
  *
  * Paste this into Extensions ▸ Apps Script on the shipment sheet.
  * See SETUP.md for the full walkthrough.
  *
- * Rows are matched on AWB Number, so syncing twice updates rather
- * than duplicates. Deleting a row here never deletes the shipment.
+ * Two-way, on one 15-minute cycle:
+ *   UP    rows typed here are pushed into the system
+ *   DOWN  shipments added or edited on the Master Shipment page are
+ *         merged back into this sheet
+ *
+ * Everything is matched on AWB Number in both directions, so syncing
+ * twice updates rather than duplicates.
+ *
+ * Deleting is one-way-safe by design: deleting a row here never
+ * deletes the shipment, and deleting a shipment in the system does
+ * not remove the row here.
+ *
+ * If the same AWB is changed in both places within one cycle, the
+ * SYSTEM WINS — the push runs first, then the pull overwrites the
+ * row with whatever the system ended up holding.
  */
 
 // ── Column headers ────────────────────────────────────────────────
@@ -57,6 +70,15 @@ var HASH_HEADER   = 'Row Hash';   // hidden; lets us skip unchanged rows
 var BATCH_SIZE = 50;
 var IMPORT_PAGE_SIZE = 500;   // rows pulled per request when backfilling
 
+// Watermark for the incremental pull: the timestamp the server told us
+// to ask from next time. Stored as the server gave it — never built
+// from this script's own clock, which is not the database's clock.
+var LAST_PULL_KEY = 'LAST_PULL_AT';
+
+// Most AWBs we bother telling the server to skip on a pull. Beyond
+// this the round trip costs more than re-writing a few rows.
+var MAX_EXCLUDE = 500;
+
 // ── Menu ──────────────────────────────────────────────────────────
 
 function onOpen() {
@@ -65,6 +87,7 @@ function onOpen() {
     .addItem('Sync Now', 'syncChangedRows')
     .addItem('Re-sync ALL rows', 'syncAllRows')
     .addSeparator()
+    .addItem('Pull updates from system', 'pullNow')
     .addItem('Import existing shipments from system', 'importExistingShipments')
     .addSeparator()
     .addItem('Setup — connect to system', 'showSetup')
@@ -122,10 +145,22 @@ function testConnection() {
 
 function syncChangedRows() { runSync(false); }
 function syncAllRows()     { runSync(true);  }
+function pullNow()         { pullChangedShipments(false, null); }
 
-/** Called by the 15-minute trigger. Silent — no dialogs. */
-function autoSync() { runSync(false, true); }
+/**
+ * Called by the 15-minute trigger. Silent — no dialogs.
+ *
+ * Push first, pull second. That order is what makes "the system wins"
+ * true: an edit made here reaches the server before we ask the server
+ * what changed, so the value that comes back down is the one the
+ * system settled on.
+ */
+function autoSync() {
+  var pushed = runSync(false, true) || [];
+  pullChangedShipments(true, pushed);
+}
 
+/** Returns the AWBs it pushed, so the pull can skip them. */
 function runSync(forceAll, silent) {
   var ss    = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName('Shipments') || ss.getSheets()[0];
@@ -134,7 +169,7 @@ function runSync(forceAll, silent) {
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) {
     if (ui) ui.alert('Nothing to sync — the sheet has no data rows.');
-    return;
+    return [];
   }
 
   var cols = ensureColumns(sheet);
@@ -142,7 +177,7 @@ function runSync(forceAll, silent) {
   if (missing.length) {
     var msg = 'These required columns are missing or renamed:\n\n' + missing.join('\n');
     if (ui) ui.alert(msg); else Logger.log(msg);
-    return;
+    return [];
   }
 
   var values = sheet.getRange(2, 1, lastRow - 1, cols.width).getValues();
@@ -176,7 +211,7 @@ function runSync(forceAll, silent) {
 
   if (!payload.length) {
     if (ui) ui.alert('Everything is already up to date.');
-    return;
+    return [];
   }
 
   // Send in batches
@@ -225,6 +260,14 @@ function runSync(forceAll, silent) {
   var summary = created + ' created, ' + updated + ' updated'
               + (failed ? ', ' + failed + ' failed — see the Sync Status column' : '');
   if (ui) ui.alert(summary); else Logger.log(summary);
+
+  // The AWBs we just wrote to the server. Every one of them now has a
+  // fresh updated_at, so without this list the pull would hand all of
+  // them straight back to us on the same cycle.
+  return payload
+    .map(function (r) { return r.awb_number; })
+    .filter(function (a) { return a; })
+    .slice(0, MAX_EXCLUDE);
 }
 
 // ── Backfill: system → sheet ──────────────────────────────────────
@@ -321,6 +364,15 @@ function importExistingShipments() {
 
   stampAsSynced(sheet, cols, tz, values.length);
 
+  // The sheet now mirrors the system exactly, so the incremental pull
+  // should start from here rather than asking how far back to go.
+  try {
+    PropertiesService.getScriptProperties()
+      .setProperty(LAST_PULL_KEY, callPull(null, 1, 0, null).next_since);
+  } catch (e) {
+    Logger.log('Imported, but could not set the pull watermark: ' + e.message);
+  }
+
   ui.alert('Imported ' + values.length + ' of ' + total + ' shipments.\n\n'
          + 'They are marked as already synced, so nothing is pushed back until you '
          + 'edit a row or add a new one.');
@@ -351,7 +403,260 @@ function stampAsSynced(sheet, cols, tz, count) {
   sheet.getRange(2, cols.byHeader[HASH_HEADER] + 1, count, 1).setValues(hashes);
 }
 
+// ── Incremental pull: system → sheet ──────────────────────────────
+
+/**
+ * Bring down shipments added or edited in the system since last time
+ * and merge them into this sheet by AWB.
+ *
+ * An AWB already here has its row rewritten in place. A new AWB is
+ * appended at the bottom. Nothing is ever cleared, and rows the client
+ * typed that have not reached the server yet are left alone.
+ *
+ * Merged rows are stamped with a fresh hash, so the next push sees
+ * them as already in sync and does not send them back up.
+ *
+ * @param silent      true when called from the trigger — no dialogs
+ * @param excludeAwbs AWBs pushed earlier in this same run, so the
+ *                    server does not hand our own writes back to us
+ */
+function pullChangedShipments(silent, excludeAwbs) {
+  var ui    = silent ? null : SpreadsheetApp.getUi();
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Shipments') || ss.getSheets()[0];
+  var tz    = ss.getSpreadsheetTimeZone();
+  var props = PropertiesService.getScriptProperties();
+
+  var cols    = ensureColumns(sheet);
+  var missing = REQUIRED_HEADERS.filter(function (h) { return !(h in cols.byHeader); });
+  if (missing.length) {
+    var msg = 'These required columns are missing or renamed:\n\n' + missing.join('\n');
+    if (ui) ui.alert(msg); else Logger.log(msg);
+    return;
+  }
+
+  var since = props.getProperty(LAST_PULL_KEY) || '';
+
+  // ── First ever pull: decide where to start from ────────────────
+  if (!since) {
+    if (silent) {
+      // Never let a trigger decide on its own to merge the entire log.
+      // Adopt a watermark quietly; from the next cycle it is a normal
+      // incremental pull. A full merge stays a deliberate manual act.
+      try {
+        props.setProperty(LAST_PULL_KEY, callPull(null, 1, 0, null).next_since);
+        Logger.log('First auto-pull: watermark set, nothing merged.');
+      } catch (e) {
+        Logger.log('First auto-pull failed: ' + e.message);
+      }
+      return;
+    }
+
+    var answer = ui.alert(
+      'First pull — how far back?',
+      'YES  — merge EVERY shipment in the system into this sheet now. '
+      + 'Existing rows are matched on AWB and rewritten; unknown AWBs are '
+      + 'added at the bottom. Nothing is deleted.\n\n'
+      + 'NO  — start from this moment. Only shipments changed in the system '
+      + 'from now on come down.',
+      ui.ButtonSet.YES_NO_CANCEL);
+
+    if (answer === ui.Button.CANCEL) return;
+
+    if (answer === ui.Button.NO) {
+      try {
+        props.setProperty(LAST_PULL_KEY, callPull(null, 1, 0, null).next_since);
+        ui.alert('Done. From now on, changes made in the system come down here.');
+      } catch (e) {
+        ui.alert('Could not reach the system\n\n' + e.message);
+      }
+      return;
+    }
+    // YES falls through with since = '' → the server returns everything
+  }
+
+  // ── Fetch every page of the window ─────────────────────────────
+  var records   = [];
+  var total     = 0;
+  var nextSince = since;
+
+  try {
+    while (true) {
+      var page = callPull(since || null, IMPORT_PAGE_SIZE, records.length, excludeAwbs);
+      total     = page.total || 0;
+      nextSince = page.next_since || nextSince;
+
+      var batch = page.rows || [];
+      if (!batch.length) break;
+      records = records.concat(batch);
+      if (records.length >= total) break;
+    }
+  } catch (e) {
+    var err = 'Pull failed\n\n' + e.message
+            + '\n\n(If this mentions the function not existing, run migration '
+            + '009_sheet_pull_changes.sql in Supabase first.)';
+    if (ui) ui.alert(err); else Logger.log(err);
+    return;
+  }
+
+  if (!records.length) {
+    // Still advance — nothing changed, and next time we ask from here.
+    if (nextSince) props.setProperty(LAST_PULL_KEY, nextSince);
+    if (ui) ui.alert('Nothing new in the system.'); else Logger.log('Pull: nothing new.');
+    return;
+  }
+
+  // ── Index what the sheet already holds ─────────────────────────
+  var width   = cols.width;
+  var lastRow = sheet.getLastRow();
+  var rows    = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, width).getValues() : [];
+  var awbCol  = cols.byHeader['AWB Number'];
+
+  var byAwb = {};
+  for (var i = 0; i < rows.length; i++) {
+    var k = awbKey(rows[i][awbCol]);
+    // First occurrence wins — if the sheet somehow holds an AWB twice,
+    // rewriting only the first keeps the duplicate visible rather than
+    // silently making the two rows agree.
+    if (k && byAwb[k] === undefined) byAwb[k] = i;
+  }
+
+  // field key → sheet column index, for the columns this sheet has
+  var target = {};
+  for (var header in FIELD_MAP) {
+    if (cols.byHeader[header] !== undefined) target[FIELD_MAP[header]] = cols.byHeader[header];
+  }
+
+  var stamp     = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm');
+  var statusCol = cols.byHeader[STATUS_HEADER];
+  var timeCol   = cols.byHeader[TIME_HEADER];
+  var hashCol   = cols.byHeader[HASH_HEADER];
+
+  var touched  = [];   // sheet row numbers rewritten in place
+  var appended = [];   // brand-new rows, written in one block
+
+  records.forEach(function (rec) {
+    var key = awbKey(rec.awb_number);
+    if (!key) return;
+
+    var idx = byAwb[key];
+    var row;
+
+    if (idx === undefined) {
+      row = new Array(width);
+      for (var c = 0; c < width; c++) row[c] = '';
+    } else {
+      row = rows[idx].slice();
+    }
+
+    for (var field in target) {
+      var v = rec[field];
+      if (v === null || v === undefined) continue;
+      row[target[field]] = (field === 'flight_date') ? toDateValue(v) : v;
+    }
+
+    row[statusCol] = 'OK — from system';
+    row[timeCol]   = stamp;
+    // Hash the merged row through the same path a push would use, so
+    // the next push recognises it as unchanged and skips it.
+    row[hashCol]   = computeHash(buildRecord(row, cols, tz));
+
+    if (idx === undefined) {
+      appended.push(row);
+    } else {
+      rows[idx] = row;
+      touched.push(idx + 2);
+    }
+  });
+
+  // ── Write back ─────────────────────────────────────────────────
+  // Written as contiguous blocks, not row by row. A full merge touches
+  // every row in the sheet, and a few thousand single-row writes would
+  // run past the 6-minute execution ceiling; sorted, they collapse
+  // into one call.
+  touched.sort(function (a, b) { return a - b; });
+
+  for (var t = 0; t < touched.length; ) {
+    var start = touched[t];
+    var end   = start;
+    while (t + 1 < touched.length && touched[t + 1] === end + 1) { t++; end++; }
+    t++;
+
+    var block = [];
+    for (var r = start; r <= end; r++) block.push(rows[r - 2]);
+
+    sheet.getRange(start, 1, block.length, width).setValues(block);
+    sheet.getRange(start, statusCol + 1, block.length, 1).setFontColor('#15803d');
+  }
+
+  if (appended.length) {
+    var startRow = Math.max(lastRow + 1, 2);
+    var needed   = startRow + appended.length - 1;
+    if (sheet.getMaxRows() < needed) {
+      sheet.insertRowsAfter(sheet.getMaxRows(), needed - sheet.getMaxRows());
+    }
+
+    sheet.getRange(startRow, 1, appended.length, width).setValues(appended);
+    sheet.getRange(startRow, statusCol + 1, appended.length, 1).setFontColor('#15803d');
+
+    if (cols.byHeader['Flight Date'] !== undefined) {
+      sheet.getRange(startRow, cols.byHeader['Flight Date'] + 1, appended.length, 1)
+           .setNumberFormat('yyyy-mm-dd');
+    }
+  }
+
+  SpreadsheetApp.flush();
+  if (nextSince) props.setProperty(LAST_PULL_KEY, nextSince);
+
+  var summary = appended.length + ' new shipment' + (appended.length === 1 ? '' : 's')
+              + ' added, ' + touched.length + ' updated from the system.';
+  if (ui) ui.alert(summary); else Logger.log(summary);
+}
+
+/** Forget the watermark — the next pull starts over. */
+function resetPullWatermark() {
+  PropertiesService.getScriptProperties().deleteProperty(LAST_PULL_KEY);
+  SpreadsheetApp.getUi().alert(
+    'Done. The next "Pull updates from system" will ask how far back to go.');
+}
+
 // ── Supabase calls ────────────────────────────────────────────────
+
+function callPull(since, limit, offset, excludeAwbs) {
+  var props  = PropertiesService.getScriptProperties();
+  var url    = props.getProperty('SUPABASE_URL');
+  var key    = props.getProperty('SUPABASE_KEY');
+  var secret = props.getProperty('SYNC_SECRET');
+
+  if (!url || !key || !secret) {
+    throw new Error('Not configured yet. Run TIL Sync ▸ Setup first.');
+  }
+
+  var response = UrlFetchApp.fetch(url + '/rest/v1/rpc/export_shipments_changed_since', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { apikey: key, Authorization: 'Bearer ' + key },
+    payload: JSON.stringify({
+      p_secret:       secret,
+      p_since:        since || null,
+      p_limit:        limit,
+      p_offset:       offset,
+      p_exclude_awbs: (excludeAwbs && excludeAwbs.length) ? excludeAwbs : null,
+    }),
+    muteHttpExceptions: true,
+  });
+
+  var code = response.getResponseCode();
+  var body = response.getContentText();
+
+  if (code !== 200) {
+    var detail = body;
+    try { detail = JSON.parse(body).message || body; } catch (e) {}
+    throw new Error('Server returned ' + code + ': ' + detail);
+  }
+
+  return JSON.parse(body) || { total: 0, rows: [] };
+}
 
 function callExport(limit, offset) {
   var props  = PropertiesService.getScriptProperties();
@@ -529,6 +834,12 @@ function toIsoDate(s) {
 
 function pad2(n) { return ('0' + n).slice(-2); }
 
+/** AWBs are compared case- and whitespace-insensitively when matching rows. */
+function awbKey(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim().toUpperCase();
+}
+
 /** Stable fingerprint of a row's data, so unchanged rows are skipped. */
 function computeHash(record) {
   var keys = Object.keys(record).sort();
@@ -544,7 +855,9 @@ function computeHash(record) {
 function installTrigger() {
   removeTrigger();
   ScriptApp.newTrigger('autoSync').timeBased().everyMinutes(15).create();
-  SpreadsheetApp.getUi().alert('Auto-sync is on — the sheet will push every 15 minutes.');
+  SpreadsheetApp.getUi().alert(
+    'Auto-sync is on. Every 15 minutes this sheet pushes what you have typed, '
+    + 'then brings down anything added or changed in the system.');
 }
 
 function removeTrigger() {
