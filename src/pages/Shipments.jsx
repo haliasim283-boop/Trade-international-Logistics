@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Plus, Download, Pencil, Trash2, FileText, Upload, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, Download, Pencil, Trash2, FileText, Upload, MessageSquare, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -7,11 +7,12 @@ import { Card, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Spinner } from '../components/ui/Spinner'
 import { Table, Thead, Th, Tbody, Tr, Td, Tfoot } from '../components/ui/Table'
-import { ConfirmDialog } from '../components/ui/Modal'
+import { Modal, ConfirmDialog } from '../components/ui/Modal'
 import { ShipmentFormModal } from '../components/shipments/ShipmentFormModal'
 import { ShipmentImportModal } from '../components/shipments/ShipmentImportModal'
+import { buildBookingMessage, buildBookingPdfFile, COMMODITY_OPTIONS } from '../components/shipments/ShipmentBookingPrint'
 
-const SHIPMENT_SELECT = '*, airlines(name, iata_prefix), clients(name), clearing_agents(name, origin_code), form_e_suppliers(name), sales_agents(name)'
+const SHIPMENT_SELECT = '*, airlines(name, iata_prefix), clients(name, phone), clearing_agents(name, origin_code), form_e_suppliers(name), sales_agents(name)'
 
 const ORIGINS      = ['PEW','ISB','MUX','SKT','LHE','KHI']
 const DESTINATIONS = ['DXB','DOH','AUH','SHJ','BAH','JED','MCT','AAN','KWI','RUH','RKT','MAN','YYZ','LHR']
@@ -230,6 +231,17 @@ export default function Shipments() {
   const [formModal,   setFormModal]   = useState(null)   // { mode, shipment? }
   const [deleteId,    setDeleteId]    = useState(null)
   const [showImport,  setShowImport]  = useState(false)
+  const [shareModal,  setShareModal]  = useState(null) // shipment to share
+  const [shareDetails, setShareDetails] = useState({
+    flightNumber: '',
+    departureTime: '',
+    departurePeriod: 'AM',
+    arrivalTime: '',
+    arrivalPeriod: 'AM',
+    commodity: 'FRESH MEAT',
+  })
+  const [sharing,     setSharing]     = useState(false)
+  const [pdfHint,     setPdfHint]     = useState(null)   // file name to attach in WhatsApp Web
 
   // ── Filter state ──
   const [search,        setSearch]        = useState('')
@@ -468,6 +480,67 @@ export default function Shipments() {
     if (error) throw new Error(error.message)
     await refreshRow(id)
   }
+  function createWhatsAppUrl(shipment) {
+    const message = buildBookingMessage(shipment, shipment.clients, shareDetails)
+    const encoded = encodeURIComponent(message)
+    return `https://web.whatsapp.com/send?text=${encoded}`
+  }
+
+  async function handleDownloadBookingPdf(shipment) {
+    setSharing(true)
+    try {
+      const { pdf, name } = await buildBookingPdfFile(shipment, shipment.clients, shareDetails)
+      pdf.save(name)
+    } catch (err) {
+      alert('Could not generate booking PDF: ' + err.message)
+    } finally {
+      setSharing(false)
+    }
+  }
+
+  /**
+   * Send the airway-bill PDF through WhatsApp Web: build the PDF, save it, and
+   * open the WhatsApp Web chat pre-filled with the booking text. WhatsApp Web
+   * has no API for attaching a file from another site, so the last step —
+   * dragging/attaching the saved PDF — stays with the user.
+   */
+  async function handleSendPdfWhatsApp(shipment) {
+    setSharing(true)
+    try {
+      const { pdf, name } = await buildBookingPdfFile(shipment, shipment.clients, shareDetails)
+      pdf.save(name)
+      window.open(createWhatsAppUrl(shipment), '_blank')
+      setPdfHint(name)
+    } catch (err) {
+      alert('Could not generate booking PDF: ' + err.message)
+    } finally {
+      setSharing(false)
+    }
+  }
+
+  function handleSendWhatsApp(shipment) {
+    const url = createWhatsAppUrl(shipment)
+    window.open(url, '_blank')
+  }
+
+  function openShareModal(shipment) {
+    setShareModal(shipment)
+    setShareDetails({
+      flightNumber: '',
+      departureTime: '',
+      departurePeriod: 'AM',
+      arrivalTime: '',
+      arrivalPeriod: 'AM',
+      commodity: COMMODITY_OPTIONS.some((o) => o.value === String(shipment?.commodity ?? '').trim().toUpperCase())
+        ? String(shipment.commodity).trim().toUpperCase()
+        : 'FRESH MEAT',
+    })
+    setPdfHint(null)
+  }
+
+  function updateShareDetail(key, value) {
+    setShareDetails((prev) => ({ ...prev, [key]: value }))
+  }
 
   // ── Filter helpers ───────────────────────────────────────────────────────
 
@@ -670,11 +743,18 @@ export default function Shipments() {
                           <Trash2 className="w-4 h-4" />
                         </button>
                         {!isDataEntry && (
-                          <button title="Generate Invoice"
-                            onClick={() => navigate('/invoices', { state: { shipmentId: s.id } })}
-                            className="p-1.5 rounded hover:bg-blue-50 text-gray-500 hover:text-accent transition-colors">
-                            <FileText className="w-4 h-4" />
-                          </button>
+                          <>
+                            <button title="Share booking"
+                              onClick={() => openShareModal(s)}
+                              className="p-1.5 rounded hover:bg-green-50 text-gray-500 hover:text-success transition-colors">
+                              <MessageSquare className="w-4 h-4" />
+                            </button>
+                            <button title="Generate Invoice"
+                              onClick={() => navigate('/invoices', { state: { shipmentId: s.id } })}
+                              className="p-1.5 rounded hover:bg-blue-50 text-gray-500 hover:text-accent transition-colors">
+                              <FileText className="w-4 h-4" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </Td>
@@ -879,6 +959,120 @@ export default function Shipments() {
           onImported={() => { loadAll() }}
           onClose={() => setShowImport(false)}
         />
+      )}
+
+      {shareModal && (
+        <Modal title="Share booking confirmation" onClose={() => setShareModal(null)} size="lg">
+          <div className="space-y-5">
+            <div className="text-sm text-gray-600">
+              Send this booking confirmation to <strong>{shareModal.clients?.name ?? 'client'}</strong>.
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 min-w-0">
+                <label className="space-y-1 text-sm min-w-0">
+                  <span className="font-medium text-gray-700">Flight number</span>
+                  <input
+                    value={shareDetails.flightNumber}
+                    onChange={(e) => updateShareDetail('flightNumber', e.target.value)}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                    placeholder="PK-257"
+                  />
+                </label>
+                <label className="space-y-1 text-sm min-w-0">
+                  <span className="font-medium text-gray-700">Commodity</span>
+                  <select
+                    value={shareDetails.commodity}
+                    onChange={(e) => updateShareDetail('commodity', e.target.value)}
+                    className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                  >
+                    {COMMODITY_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.emoji} {opt.value}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="grid grid-cols-1 gap-4 min-w-0">
+                <div className="space-y-1 text-sm min-w-0">
+                  <div className="font-medium text-gray-700">Departure</div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <input
+                      value={shareDetails.departureTime}
+                      onChange={(e) => updateShareDetail('departureTime', e.target.value)}
+                      className="flex-1 min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                      placeholder="1:10"
+                    />
+                    <select
+                      value={shareDetails.departurePeriod}
+                      onChange={(e) => updateShareDetail('departurePeriod', e.target.value)}
+                      className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent sm:w-32"
+                    >
+                      <option>AM</option>
+                      <option>PM</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-1 text-sm min-w-0">
+                  <div className="font-medium text-gray-700">Arrival</div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <input
+                      value={shareDetails.arrivalTime}
+                      onChange={(e) => updateShareDetail('arrivalTime', e.target.value)}
+                      className="flex-1 min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                      placeholder="4:00"
+                    />
+                    <select
+                      value={shareDetails.arrivalPeriod}
+                      onChange={(e) => updateShareDetail('arrivalPeriod', e.target.value)}
+                      className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent sm:w-32"
+                    >
+                      <option>AM</option>
+                      <option>PM</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="text-xs text-gray-500">
+              Reporting time is calculated automatically as 8 hours before departure. Enter the booking details above and then send the message.
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                onClick={() => handleSendWhatsApp(shareModal)}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-green-200 bg-white px-4 py-3 text-sm font-semibold text-green-700 hover:bg-green-50 transition-colors"
+              >
+                <MessageSquare className="w-4 h-4" />
+                Send WhatsApp text
+              </button>
+              <button
+                onClick={() => handleSendPdfWhatsApp(shareModal)}
+                disabled={sharing}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-navy text-white px-4 py-3 text-sm font-semibold hover:bg-navy-light transition-colors disabled:opacity-60"
+              >
+                <FileText className="w-4 h-4" />
+                {sharing ? 'Preparing PDF…' : 'Send PDF on WhatsApp'}
+              </button>
+            </div>
+
+            {pdfHint && (
+              <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-xs text-green-900 leading-relaxed">
+                <strong>{pdfHint}</strong> was downloaded and WhatsApp Web is open in a new tab.
+                Pick the chat, then attach the file with the 📎 button (or just drag it into the chat) and send.
+                WhatsApp Web does not let another site attach files for you, so this last step is manual.
+              </div>
+            )}
+
+            <button
+              onClick={() => handleDownloadBookingPdf(shareModal)}
+              disabled={sharing}
+              className="w-full text-center text-xs font-medium text-gray-500 underline underline-offset-4 hover:text-gray-700 disabled:opacity-60"
+            >
+              Just download the PDF
+            </button>
+          </div>
+        </Modal>
       )}
     </>
   )
