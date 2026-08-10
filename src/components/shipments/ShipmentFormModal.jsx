@@ -129,6 +129,42 @@ export function ShipmentFormModal({
   function removeExisting(url) { setExistingUrls((prev) => prev.filter((u) => u !== url)) }
   function removeNew(idx)      { setNewFiles((prev) => prev.filter((_, i) => i !== idx)) }
 
+  const [isDraggingDocs, setIsDraggingDocs] = useState(false)
+  // Counts nested dragenter/dragleave pairs so a child element's dragleave
+  // (moving over the icon/text inside the drop zone) doesn't flicker the
+  // highlight off before the drag has actually left the zone.
+  const docDragDepth = useRef(0)
+
+  function isPdf(file) {
+    return file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
+  }
+
+  function handleDocDragEnter(e) {
+    e.preventDefault()
+    e.stopPropagation()
+    docDragDepth.current += 1
+    setIsDraggingDocs(true)
+  }
+  function handleDocDragOver(e) {
+    // Required for onDrop to fire at all — browsers reject drops by default.
+    e.preventDefault()
+    e.stopPropagation()
+  }
+  function handleDocDragLeave(e) {
+    e.preventDefault()
+    e.stopPropagation()
+    docDragDepth.current = Math.max(0, docDragDepth.current - 1)
+    if (docDragDepth.current === 0) setIsDraggingDocs(false)
+  }
+  function handleDocDrop(e) {
+    e.preventDefault()
+    e.stopPropagation()
+    docDragDepth.current = 0
+    setIsDraggingDocs(false)
+    const dropped = Array.from(e.dataTransfer?.files ?? []).filter(isPdf)
+    if (dropped.length > 0) setNewFiles((prev) => [...prev, ...dropped])
+  }
+
   // ── Computed (never stored; the DB computes GENERATED columns) ──────────
   const pkrRate               = parseFloat(form.pkr_exchange_rate || 1)
   const cw                    = parseFloat(form.chargeable_weight || 0)
@@ -501,9 +537,21 @@ export function ShipmentFormModal({
           ))}
 
           {/* Drop zone / add button */}
-          <label className="flex items-center gap-3 px-4 py-3 border-2 border-dashed border-gray-300 rounded-md cursor-pointer hover:border-accent hover:bg-blue-50 transition-colors">
-            <UploadCloud className="w-5 h-5 text-gray-400" />
-            <span className="text-sm text-gray-500">Click to attach PDF(s) — you can add multiple</span>
+          <label
+            onDragEnter={handleDocDragEnter}
+            onDragOver={handleDocDragOver}
+            onDragLeave={handleDocDragLeave}
+            onDrop={handleDocDrop}
+            className={`flex items-center gap-3 px-4 py-3 border-2 border-dashed rounded-md cursor-pointer transition-colors ${
+              isDraggingDocs
+                ? 'border-accent bg-blue-50'
+                : 'border-gray-300 hover:border-accent hover:bg-blue-50'
+            }`}
+          >
+            <UploadCloud className={`w-5 h-5 flex-shrink-0 ${isDraggingDocs ? 'text-accent' : 'text-gray-400'}`} />
+            <span className={`text-sm ${isDraggingDocs ? 'text-accent font-medium' : 'text-gray-500'}`}>
+              {isDraggingDocs ? 'Drop PDF(s) to attach' : 'Click, or drag and drop, to attach PDF(s) — you can add multiple'}
+            </span>
             <input
               ref={fileInputRef}
               type="file"
