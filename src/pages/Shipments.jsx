@@ -174,6 +174,8 @@ function fmtRate(n) {
   return Number(n || 0).toFixed(4)
 }
 
+function r2(n) { return Math.round(Number(n || 0) * 100) / 100 }
+
 function exportCSV(rows) {
   const cols = [
     ['Date',            (r) => r.flight_date],
@@ -709,6 +711,7 @@ export default function Shipments() {
                   {!isDataEntry && <Th className="text-right">SA Commission (PKR/kg)</Th>}
                   {!isDataEntry && <Th className="text-right">SA Commission Amt (PKR)</Th>}
                   {!isDataEntry && <Th>Form E Supplier</Th>}
+                  {!isDataEntry && <Th className="text-right">Form E USD Rate (per kg)</Th>}
                   {!isDataEntry && <Th className="text-right">Form E USD Value</Th>}
                   {!isDataEntry && <Th className="text-right">Form E Rate Receivable</Th>}
                   {!isDataEntry && <Th className="text-right">Form E Rate Payable</Th>}
@@ -721,6 +724,10 @@ export default function Shipments() {
               <Tbody>
                 {paginated.map((s) => {
                   const saCommissionAmt = Number(s.chargeable_weight || 0) * Number(s.sales_agent_commission_per_kg || 0)
+                  // form_e_usd_value stores the TOTAL USD; the editable cell works in USD per kg.
+                  const formEUsdPerKg = Number(s.chargeable_weight || 0) > 0
+                    ? r2(Number(s.form_e_usd_value || 0) / Number(s.chargeable_weight))
+                    : Number(s.form_e_usd_value || 0)
                   return (
                   <Tr key={s.id} className={STATUS_ROW[s.status] ?? ''}>
                     <Td>
@@ -843,9 +850,12 @@ export default function Shipments() {
                         onSave={(v) => updateField(s.id, 'form_e_supplier_id', v)} />
                     )}
                     {!isDataEntry && (
-                      <EditableCell type="number" step="0.01" align="right" value={s.form_e_usd_value}
-                        display={fmt(s.form_e_usd_value)}
+                      <EditableCell type="number" step="0.01" align="right" value={formEUsdPerKg}
+                        display={fmt(formEUsdPerKg)}
                         onSave={(v) => updateField(s.id, 'form_e_usd_value', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell disabled align="right" display={`$ ${fmt(s.form_e_usd_value)}`} />
                     )}
                     {!isDataEntry && (
                       <EditableCell type="number" step="0.01" align="right" value={s.form_e_pkr_rate}

@@ -6,6 +6,14 @@ function fmt(n) {
   return Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function payableAmount(s) {
+  return Number(s.form_e_usd_value || 0) * Number(s.form_e_pkr_rate_payable || 0)
+}
+
+function fmtWeight(n) {
+  return Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
+}
+
 function fmtDate(s) {
   if (!s) return ''
   const [y, m, d] = s.split('-').map(Number)
@@ -17,10 +25,13 @@ export function printFormEReport({ supplier, shipments, payments, summary, dateF
     <tr>
       <td>${fmtDate(s.flight_date)}</td>
       <td class="mono">${esc(s.awb_number)}</td>
+      <td class="mono">${esc(s.origin)}</td>
+      <td class="mono">${esc(s.destination)}</td>
       <td>${esc(s.clients?.name) || '—'}</td>
+      <td class="num">${fmtWeight(s.chargeable_weight)}</td>
       <td class="num">$ ${fmt(s.form_e_usd_value)}</td>
       <td class="num">${fmt(s.form_e_pkr_rate_payable)}</td>
-      <td class="num bold">PKR ${fmt(Number(s.form_e_usd_value || 0) * Number(s.form_e_pkr_rate_payable || 0))}</td>
+      <td class="num bold">PKR ${fmt(payableAmount(s))}</td>
     </tr>`).join('')
 
   const payRows = payments.map((p) => `
@@ -38,7 +49,7 @@ export function printFormEReport({ supplier, shipments, payments, summary, dateF
   <meta charset="utf-8"/>
   <title>Form E Report — ${esc(supplier?.name)}</title>
   <style>
-    @page { size: A4 portrait; margin: 14mm; }
+    @page { size: A4 landscape; margin: 12mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: Arial, sans-serif; }
     body { font-size: 9.5pt; color: #1a1a2e; background: white; }
 
@@ -118,24 +129,29 @@ export function printFormEReport({ supplier, shipments, payments, summary, dateF
       <tr>
         <th>Date</th>
         <th>AWB No.</th>
+        <th>Org</th>
+        <th>Dst</th>
         <th>Client</th>
+        <th class="num">Weight (KG)</th>
         <th class="num">USD Value</th>
         <th class="num">PKR Rate Payable</th>
-        <th class="num">Form E Amount (PKR)</th>
+        <th class="num">Form E Payable (PKR)</th>
       </tr>
     </thead>
     <tbody>
       ${shipments.length === 0
-        ? `<tr><td colspan="6" style="text-align:center;padding:16px;color:#9ca3af">No Form E shipments in this period.</td></tr>`
+        ? `<tr><td colspan="9" style="text-align:center;padding:16px;color:#9ca3af">No Form E shipments in this period.</td></tr>`
         : rows
       }
     </tbody>
     ${shipments.length > 0 ? `
     <tfoot>
       <tr>
-        <td colspan="3" class="bold">PERIOD TOTALS</td>
+        <td colspan="5" class="bold">PERIOD TOTALS</td>
+        <td class="num">${fmtWeight(summary.totalWeight)}</td>
         <td class="num">$ ${fmt(summary.totalUSD)}</td>
-        <td class="num">PKR ${fmt(shipments.reduce((acc, s) => acc + Number(s.form_e_usd_value || 0) * Number(s.form_e_pkr_rate_payable || 0), 0))}</td>
+        <td></td>
+        <td class="num">PKR ${fmt(summary.totalPayable)}</td>
       </tr>
     </tfoot>` : ''}
   </table>
@@ -144,8 +160,9 @@ export function printFormEReport({ supplier, shipments, payments, summary, dateF
   <div class="summary-box">
     <table>
       <tr><td>Total Form E Transactions (Period)</td><td>${shipments.length}</td></tr>
+      <tr><td>Total Weight (KG)</td><td>${fmtWeight(summary.totalWeight)}</td></tr>
       <tr><td>Total USD Value</td><td>$ ${fmt(summary.totalUSD)}</td></tr>
-      <tr><td>Total PKR Payable (Period)</td><td>PKR ${fmt(summary.totalPKR)}</td></tr>
+      <tr><td>Total PKR Payable (Period)</td><td>PKR ${fmt(summary.totalPayable)}</td></tr>
       <tr><td>Total Paid (All Time)</td><td class="ok">PKR ${fmt(summary.totalPaid)}</td></tr>
       <tr class="${summary.balanceDue > 0 ? 'balance-due' : 'balance-ok'}">
         <td>Balance Due</td>
