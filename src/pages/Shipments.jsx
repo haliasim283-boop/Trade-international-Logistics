@@ -263,6 +263,7 @@ export default function Shipments() {
   const [filterClient,  setFilterClient]  = useState('')
   const [filterStatus,  setFilterStatus]  = useState('')
   const [filterOrigin,  setFilterOrigin]  = useState('')
+  const [filterFormE,   setFilterFormE]   = useState('')   // '' = all, 'none' = no supplier
   const [filterFrom,    setFilterFrom]    = useState('')
   const [filterTo,      setFilterTo]      = useState('')
 
@@ -340,13 +341,15 @@ export default function Shipments() {
     if (filterClient  && s.client_id  !== filterClient)  return false
     if (filterStatus  && s.status     !== filterStatus)  return false
     if (filterOrigin  && s.origin     !== filterOrigin) return false
+    if (filterFormE === 'none') { if (s.form_e_supplier_id) return false }
+    else if (filterFormE && s.form_e_supplier_id !== filterFormE) return false
     if (filterFrom    && s.flight_date < filterFrom) return false
     if (filterTo      && s.flight_date > filterTo)   return false
     return true
-  }), [shipments, search, filterAirline, filterClient, filterStatus, filterOrigin, filterFrom, filterTo])
+  }), [shipments, search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo])
 
   // Reset to page 1 whenever the filtered result set changes
-  useEffect(() => { setPage(1) }, [search, filterAirline, filterClient, filterStatus, filterOrigin, filterFrom, filterTo])
+  useEffect(() => { setPage(1) }, [search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
@@ -588,12 +591,12 @@ export default function Shipments() {
 
   // ── Filter helpers ───────────────────────────────────────────────────────
 
-  const hasFilters = search || filterAirline || filterClient || filterStatus || filterOrigin || filterFrom || filterTo
+  const hasFilters = search || filterAirline || filterClient || filterStatus || filterOrigin || filterFormE || filterFrom || filterTo
   const INP_F = 'shrink-0 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent bg-white'
 
   function clearFilters() {
     setSearch(''); setFilterAirline(''); setFilterClient('')
-    setFilterStatus(''); setFilterOrigin(''); setFilterFrom(''); setFilterTo('')
+    setFilterStatus(''); setFilterOrigin(''); setFilterFormE(''); setFilterFrom(''); setFilterTo('')
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -625,8 +628,10 @@ export default function Shipments() {
 
         {/* Filters */}
         <Card>
-          <CardBody className="py-3 overflow-x-auto">
-            <div className="flex flex-nowrap gap-2 items-center min-w-0">
+          <CardBody className="py-3">
+            {/* Wraps onto extra rows instead of scrolling sideways — with eight
+                controls the single nowrap row clipped the last of them. */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <input
                 name="search"
                 className={INP_F}
@@ -671,8 +676,17 @@ export default function Shipments() {
                 ))}
               </select>
 
+              {!isDataEntry && (
+                <select name="filter_form_e" className={INP_F} value={filterFormE}
+                  onChange={(e) => setFilterFormE(e.target.value)} title="Filter by Form E supplier">
+                  <option value="">All Form E suppliers</option>
+                  <option value="none">— No Form E supplier —</option>
+                  {formESuppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              )}
+
               {hasFilters && (
-                <button onClick={clearFilters} className="text-xs text-accent hover:underline whitespace-nowrap">
+                <button onClick={clearFilters} className="shrink-0 ml-1 px-1 text-xs font-medium text-accent hover:underline whitespace-nowrap">
                   Clear filters
                 </button>
               )}
