@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Plus, Download, Pencil, Trash2, FileText, Upload, MessageSquare, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, Download, Pencil, Trash2, FileText, Upload, MessageSquare, ChevronLeft, ChevronRight, Copy, Check } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -10,7 +10,7 @@ import { Table, Thead, Th, Tbody, Tr, Td, Tfoot } from '../components/ui/Table'
 import { Modal, ConfirmDialog } from '../components/ui/Modal'
 import { ShipmentFormModal } from '../components/shipments/ShipmentFormModal'
 import { ShipmentImportModal } from '../components/shipments/ShipmentImportModal'
-import { buildBookingMessage, buildBookingPdfFile, COMMODITY_OPTIONS } from '../components/shipments/ShipmentBookingPrint'
+import { buildBookingMessage, buildBookingPdfFile, COMMODITY_OPTIONS, AIRCRAFT_OPTIONS } from '../components/shipments/ShipmentBookingPrint'
 
 const SHIPMENT_SELECT = '*, airlines(name, iata_prefix), clients(name, phone), clearing_agents(name, origin_code), form_e_suppliers(name), sales_agents(name)'
 
@@ -176,6 +176,16 @@ function fmtRate(n) {
 
 function r2(n) { return Math.round(Number(n || 0) * 100) / 100 }
 
+// Shared field styling for the "Share booking confirmation" modal — keeps every
+// input, select and label the same height so the two columns line up.
+// SHARE_FIELD carries no width class — callers add their own (w-full, flex-1,
+// w-24). Baking w-full in here would beat any width the caller sets, since
+// Tailwind emits w-full after w-24 regardless of class order in the string.
+const SHARE_LABEL = 'mb-1 block font-medium text-gray-700'
+const SHARE_FIELD = 'min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm ' +
+                    'focus:outline-none focus:ring-2 focus:ring-accent'
+const SHARE_INP   = `w-full ${SHARE_FIELD}`
+
 function exportCSV(rows) {
   const cols = [
     ['Date',            (r) => r.flight_date],
@@ -236,6 +246,7 @@ export default function Shipments() {
   const [shareModal,  setShareModal]  = useState(null) // shipment to share
   const [shareDetails, setShareDetails] = useState({
     flightNumber: '',
+    aircraft: '',
     departureTime: '',
     departurePeriod: 'AM',
     arrivalTime: '',
@@ -244,6 +255,7 @@ export default function Shipments() {
   })
   const [sharing,     setSharing]     = useState(false)
   const [pdfHint,     setPdfHint]     = useState(null)   // file name to attach in WhatsApp Web
+  const [copied,      setCopied]      = useState(false)  // "Copied!" feedback on the copy button
 
   // ── Filter state ──
   const [search,        setSearch]        = useState('')
@@ -529,6 +541,7 @@ export default function Shipments() {
     setShareModal(shipment)
     setShareDetails({
       flightNumber: '',
+      aircraft: '',
       departureTime: '',
       departurePeriod: 'AM',
       arrivalTime: '',
@@ -538,6 +551,35 @@ export default function Shipments() {
         : 'FRESH MEAT',
     })
     setPdfHint(null)
+    setCopied(false)
+  }
+
+  /**
+   * Copy the booking text to the clipboard. navigator.clipboard needs a secure
+   * context (https or localhost); fall back to a hidden textarea + execCommand
+   * so this still works if the app is served over plain http on the LAN.
+   */
+  async function handleCopyMessage(shipment) {
+    const message = buildBookingMessage(shipment, shipment.clients, shareDetails)
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(message)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = message
+        ta.setAttribute('readonly', '')
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      alert('Could not copy the message: ' + err.message)
+    }
   }
 
   function updateShareDetail(key, value) {
@@ -978,75 +1020,99 @@ export default function Shipments() {
               Send this booking confirmation to <strong>{shareModal.clients?.name ?? 'client'}</strong>.
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="grid grid-cols-1 gap-4 min-w-0">
-                <label className="space-y-1 text-sm min-w-0">
-                  <span className="font-medium text-gray-700">Flight number</span>
+            {/* One flat 2-column grid so every field sits on a shared row
+                baseline: Flight/Departure, Aircraft/Arrival, Commodity. */}
+            <div className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
+              <label className="block text-sm min-w-0">
+                <span className={SHARE_LABEL}>Flight number</span>
+                <input
+                  value={shareDetails.flightNumber}
+                  onChange={(e) => updateShareDetail('flightNumber', e.target.value)}
+                  className={SHARE_INP}
+                  placeholder="PK-257"
+                />
+              </label>
+
+              <div className="text-sm min-w-0">
+                <div className={SHARE_LABEL}>Departure</div>
+                <div className="flex items-center gap-2">
                   <input
-                    value={shareDetails.flightNumber}
-                    onChange={(e) => updateShareDetail('flightNumber', e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-                    placeholder="PK-257"
+                    value={shareDetails.departureTime}
+                    onChange={(e) => updateShareDetail('departureTime', e.target.value)}
+                    className={`flex-1 ${SHARE_FIELD}`}
+                    placeholder="1:10"
                   />
-                </label>
-                <label className="space-y-1 text-sm min-w-0">
-                  <span className="font-medium text-gray-700">Commodity</span>
                   <select
-                    value={shareDetails.commodity}
-                    onChange={(e) => updateShareDetail('commodity', e.target.value)}
-                    className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                    value={shareDetails.departurePeriod}
+                    onChange={(e) => updateShareDetail('departurePeriod', e.target.value)}
+                    className={`w-24 shrink-0 ${SHARE_FIELD}`}
                   >
-                    {COMMODITY_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.emoji} {opt.value}</option>
-                    ))}
+                    <option>AM</option>
+                    <option>PM</option>
                   </select>
-                </label>
-              </div>
-              <div className="grid grid-cols-1 gap-4 min-w-0">
-                <div className="space-y-1 text-sm min-w-0">
-                  <div className="font-medium text-gray-700">Departure</div>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <input
-                      value={shareDetails.departureTime}
-                      onChange={(e) => updateShareDetail('departureTime', e.target.value)}
-                      className="flex-1 min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-                      placeholder="1:10"
-                    />
-                    <select
-                      value={shareDetails.departurePeriod}
-                      onChange={(e) => updateShareDetail('departurePeriod', e.target.value)}
-                      className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent sm:w-32"
-                    >
-                      <option>AM</option>
-                      <option>PM</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="space-y-1 text-sm min-w-0">
-                  <div className="font-medium text-gray-700">Arrival</div>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <input
-                      value={shareDetails.arrivalTime}
-                      onChange={(e) => updateShareDetail('arrivalTime', e.target.value)}
-                      className="flex-1 min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-                      placeholder="4:00"
-                    />
-                    <select
-                      value={shareDetails.arrivalPeriod}
-                      onChange={(e) => updateShareDetail('arrivalPeriod', e.target.value)}
-                      className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent sm:w-32"
-                    >
-                      <option>AM</option>
-                      <option>PM</option>
-                    </select>
-                  </div>
                 </div>
               </div>
+
+              <label className="block text-sm min-w-0">
+                <span className={SHARE_LABEL}>Aircraft</span>
+                <select
+                  value={shareDetails.aircraft}
+                  onChange={(e) => updateShareDetail('aircraft', e.target.value)}
+                  className={SHARE_INP}
+                >
+                  <option value="">— None —</option>
+                  {AIRCRAFT_OPTIONS.map((reg) => (
+                    <option key={reg} value={reg}>{reg}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="text-sm min-w-0">
+                <div className={SHARE_LABEL}>Arrival</div>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={shareDetails.arrivalTime}
+                    onChange={(e) => updateShareDetail('arrivalTime', e.target.value)}
+                    className={`flex-1 ${SHARE_FIELD}`}
+                    placeholder="4:00"
+                  />
+                  <select
+                    value={shareDetails.arrivalPeriod}
+                    onChange={(e) => updateShareDetail('arrivalPeriod', e.target.value)}
+                    className={`w-24 shrink-0 ${SHARE_FIELD}`}
+                  >
+                    <option>AM</option>
+                    <option>PM</option>
+                  </select>
+                </div>
+              </div>
+
+              <label className="block text-sm min-w-0">
+                <span className={SHARE_LABEL}>Commodity</span>
+                <select
+                  value={shareDetails.commodity}
+                  onChange={(e) => updateShareDetail('commodity', e.target.value)}
+                  className={SHARE_INP}
+                >
+                  {COMMODITY_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.emoji} {opt.value}</option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             <div className="text-xs text-gray-500">
               Reporting time is calculated automatically as 8 hours before departure. Enter the booking details above and then send the message.
             </div>
+
+            <button
+              onClick={() => handleCopyMessage(shareModal)}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              {copied
+                ? <><Check className="w-4 h-4 text-green-600" /> Copied!</>
+                : <><Copy className="w-4 h-4" /> Copy text message</>}
+            </button>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <button

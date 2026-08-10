@@ -291,6 +291,14 @@ export const COMMODITY_OPTIONS = [
   { value: 'FRESH MANGO',           emoji: '🥭' },
 ]
 
+/* ---------------- aircraft ---------------- */
+/** Aircraft registrations available for a booking. */
+export const AIRCRAFT_OPTIONS = [
+  'AP-BLC', 'AP-BLU', 'AP-BLV', 'AP-BLQ', 'AP-BLA', 'AP-BLS',
+  'AP-BLT', 'AP-BMX', 'AP-BMY', 'AP-BOM', 'AP-BON', 'AP-BMV',
+  'AP-BOK', 'AP-BOL', 'AP-BLY', 'AP-BLZ',
+]
+
 const COMMODITY_EMOJI = COMMODITY_OPTIONS.reduce((acc, o) => {
   acc[o.value] = o.emoji
   return acc
@@ -337,6 +345,7 @@ export function buildBookingMessage(shipment, client, details = {}) {
     `📦 SHIPPER: ${shipper}`,
     `✈️ AWB: ${shipment?.awb_number ?? '—'}`,
     `🛫 FLIGHT: ${flight}`,
+    ...(details.aircraft ? [`🛩️ AIRCRAFT: ${details.aircraft}`] : []),
     `📅 DATE: ${formatFullDateWithDay(shipment?.flight_date)}`,
     DIVIDER,
     `📍 ${airportLine(shipment?.origin)}`,
@@ -536,6 +545,7 @@ body{
         <div class="kv">
           <div class="row"><span class="k">Dated:</span><span class="v">${esc(formatFullDateWithDay(shipment?.flight_date))}</span></div>
           <div class="row"><span class="k">Flight Number:</span><span class="v">${esc(details.flightNumber || '—')}</span></div>
+          ${details.aircraft ? `<div class="row"><span class="k">Aircraft:</span><span class="v">${esc(details.aircraft)}</span></div>` : ''}
           <div class="row"><span class="k">Route:</span><span class="v">${routeLine(shipment)}</span></div>
         </div>
 

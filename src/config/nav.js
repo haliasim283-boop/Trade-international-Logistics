@@ -36,7 +36,7 @@ export const NAV_ITEMS = [
 
 // Roles that can access each route (empty = all authenticated)
 export const ROUTE_ACCESS = {
-  '/':             ['Admin','Manager','Report Viewer','Invoice Agent'],
+  '/':             ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
   '/shipments':    ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
   '/stock':        ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
   '/parties':      ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
