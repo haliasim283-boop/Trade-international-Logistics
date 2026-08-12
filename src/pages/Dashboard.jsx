@@ -120,7 +120,7 @@ export default function Dashboard() {
       ] = await Promise.all([
         // All shipments for total receivable + status + clearing + form E calculations
         fetchAllRows(() => supabase.from('shipments').select(
-          'id,client_id,flight_date,status,total_receivable,form_e_amount_pkr,clearing_charges,clearing_agents(is_in_house)'
+          'id,client_id,flight_date,status,total_receivable,form_e_usd_value,form_e_pkr_rate_payable,clearing_charges,clearing_agents(is_in_house)'
         )),
         // All client payments (for outstanding calculation)
         fetchAllRows(() => supabase.from('client_payments').select('client_id,amount')),
@@ -174,7 +174,15 @@ export default function Dashboard() {
       const cassPayable = Math.max(0, r2(cassGross - cassPaidFt))
 
       // ── KPI 3: Form E payable ───────────────────────────────────────────────
-      const formETotal  = r2((allShips || []).reduce((s, r) => s + Number(r.form_e_amount_pkr || 0), 0))
+      // What we owe suppliers = form_e_usd_value × form_e_pkr_rate_payable.
+      // Mirrors payableAmount() in FormEReports.jsx — NOT form_e_amount_pkr,
+      // which is the client receivable side (USD value × PKR rate receivable).
+      // (The generated column shipments.form_e_amount_payable_pkr from
+      // migration 010 would give the same number, but that migration hasn't
+      // been applied to the live DB yet, so we compute it here instead.)
+      const formETotal  = r2((allShips || []).reduce(
+        (s, r) => s + r2(Number(r.form_e_usd_value || 0) * Number(r.form_e_pkr_rate_payable || 0)), 0
+      ))
       const formEPaid   = r2((formEPmts || []).reduce((s, r) => s + Number(r.amount), 0))
       const formEPayable= Math.max(0, r2(formETotal - formEPaid))
 
