@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   Printer, Plus, Trash2, Pencil, CheckCircle, Clock, CreditCard,
-  AlertCircle, ChevronDown,
+  AlertCircle, ChevronDown, FileSpreadsheet,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { Card, CardBody } from '../components/ui/Card'
@@ -13,6 +13,13 @@ import { CassPaymentModal } from '../components/cass/CassPaymentModal'
 import { CassAdjustmentModal } from '../components/cass/CassAdjustmentModal'
 import { printCassReport } from '../components/cass/CassPrintView'
 import { ManageAirlinesModal } from '../components/cass/ManageAirlinesModal'
+
+// pdf.js is ~1.4 MB — load it only when the converter is actually opened
+// rather than shipping it in the main bundle.
+const CassPdfConvertModal = lazy(() =>
+  import('../components/cass/CassPdfConvertModal')
+    .then((m) => ({ default: m.CassPdfConvertModal })),
+)
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -126,6 +133,7 @@ export default function CassReports() {
   const [deleteAdjId,       setDeleteAdjId]       = useState(null)
   const [changingStatus,    setChangingStatus]    = useState(false)
   const [showManageAirlines, setShowManageAirlines] = useState(false)
+  const [showPdfConvert,    setShowPdfConvert]    = useState(false)
 
   // ── Load airlines + settings once ──────────────────────────────────────────
   const loadAirlines = useCallback(async () => {
@@ -300,6 +308,9 @@ export default function CassReports() {
           <p className="text-sm text-gray-500 mt-0.5">Fortnightly CASS billing reports per airline</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button onClick={() => setShowPdfConvert(true)} variant="secondary">
+            <FileSpreadsheet className="w-4 h-4" /> CASS PDF → Excel
+          </Button>
           <Button onClick={() => setShowManageAirlines(true)} variant="secondary">
             <Plus className="w-4 h-4" /> Manage Airlines
           </Button>
@@ -781,6 +792,16 @@ export default function CassReports() {
           onClose={() => setShowManageAirlines(false)}
           onChanged={loadAirlines}
         />
+      )}
+
+      {showPdfConvert && (
+        <Suspense fallback={
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <Spinner size="lg" />
+          </div>
+        }>
+          <CassPdfConvertModal onClose={() => setShowPdfConvert(false)} />
+        </Suspense>
       )}
     </div>
   )
