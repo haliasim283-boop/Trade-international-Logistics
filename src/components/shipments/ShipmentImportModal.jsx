@@ -3,8 +3,9 @@ import * as XLSX from 'xlsx'
 import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
-import { Upload, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
+import { Upload, CheckCircle, XCircle, AlertTriangle, Copy } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { awbKey, fetchExistingAwbKeys } from '../../lib/awb'
 
 // ── Excel Parser ──────────────────────────────────────────────────────────────
 
@@ -260,7 +261,35 @@ function parseTrackingRows(rows, airlines, clients) {
     }
   })
 
-  return { ready, unmatched, skipped }
+  return { ready, unmatched, skipped, duplicates: [] }
+}
+
+/**
+ * Pull rows whose AWB is already on file out of `ready` so the preview counts
+ * — and the Import button — reflect what will actually be created.
+ *
+ * Two kinds of duplicate are caught: an AWB that already exists in the
+ * shipments table, and the same AWB appearing twice inside the sheet itself
+ * (a repeat in one batch would otherwise make Postgres reject the whole chunk).
+ */
+function splitOutDuplicates(parsed, existingKeys) {
+  const ready      = []
+  const duplicates = []
+  const seenInFile = new Set()
+
+  for (const r of parsed.ready) {
+    const key = awbKey(r.awb_number)
+    if (key && existingKeys.has(key)) {
+      duplicates.push({ ...r, reason: 'Already in the Master Shipment Log' })
+    } else if (key && seenInFile.has(key)) {
+      duplicates.push({ ...r, reason: 'Repeated earlier in this file' })
+    } else {
+      if (key) seenInFile.add(key)
+      ready.push(r)
+    }
+  }
+
+  return { ...parsed, ready, duplicates }
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -273,6 +302,7 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
   const [result,      setResult]      = useState(null)
   const [showSkipped, setShowSkipped] = useState(false)
   const [error,       setError]       = useState(null)
+  const [checking,    setChecking]    = useState(false)
   const fileRef = useRef()
 
   const processFile = useCallback((file) => {
@@ -280,25 +310,37 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
     const ext = file.name.split('.').pop().toLowerCase()
     setError(null)
 
-    function finish(rows) {
+    async function finish(rows) {
       if (rows.length < 2) { setError('File appears to be empty or has no data rows.'); return }
       const result = parseTrackingRows(rows, airlines, clients)
-      setParsed(result)
+
+      // Check the AWBs against what's already on file before showing the
+      // preview, so "ready" never counts a row that would be a no-op.
+      setChecking(true)
+      try {
+        const existing = await fetchExistingAwbKeys(supabase, result.ready.map(r => r.awb_number))
+        setParsed(splitOutDuplicates(result, existing))
+      } catch (err) {
+        setError('Could not check for existing AWBs: ' + err.message)
+        setChecking(false)
+        return
+      }
+      setChecking(false)
       setStep('preview')
     }
 
     if (ext === 'xlsx' || ext === 'xls') {
       const reader = new FileReader()
       reader.onload = (e) => {
-        try { finish(readExcel(e.target.result)) }
-        catch (err) { setError('Error reading Excel file: ' + err.message) }
+        finish(readExcel(e.target.result))
+          .catch(err => { setChecking(false); setError('Error reading Excel file: ' + err.message) })
       }
       reader.readAsArrayBuffer(file)
     } else if (ext === 'csv') {
       const reader = new FileReader()
       reader.onload = (e) => {
-        try { finish(parseCSV(e.target.result)) }
-        catch (err) { setError('Error reading CSV file: ' + err.message) }
+        finish(parseCSV(e.target.result))
+          .catch(err => { setChecking(false); setError('Error reading CSV file: ' + err.message) })
       }
       reader.readAsText(file, 'utf-8')
     } else {
@@ -359,7 +401,13 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
       }
     }
 
-    setResult({ inserted, skippedDupes, skippedUnmatched: parsed.unmatched.length, errors })
+    setResult({
+      inserted,
+      skippedDupes,                             // caught by the DB safety net, normally 0
+      preExisting:      parsed.duplicates.length, // filtered out before this screen
+      skippedUnmatched: parsed.unmatched.length,
+      errors,
+    })
     setImporting(false)
     setStep('done')
     if (inserted > 0) onImported()
@@ -367,6 +415,7 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
 
   const unmatchedClients  = parsed ? [...new Set(parsed.unmatched.filter(r => !r.client_id).map(r => r.clientRaw).filter(Boolean))] : []
   const unmatchedAirlines = parsed ? [...new Set(parsed.unmatched.filter(r => !r.airline_id).map(r => r.airlineName).filter(Boolean))] : []
+  const excludedCount     = parsed ? parsed.duplicates.length + parsed.unmatched.length + parsed.skipped.length : 0
 
   return (
     <Modal title="Import Shipments from Excel" onClose={onClose} size="xl">
@@ -384,18 +433,29 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
           )}
 
           <div
-            className={`border-2 border-dashed rounded-xl p-14 text-center cursor-pointer transition-colors ${
-              dragOver ? 'border-accent bg-accent/5' : 'border-gray-300 hover:border-accent/50 hover:bg-gray-50'
+            className={`border-2 border-dashed rounded-xl p-14 text-center transition-colors ${
+              checking ? 'border-gray-200 bg-gray-50 cursor-wait'
+                       : dragOver ? 'border-accent bg-accent/5 cursor-pointer'
+                       : 'border-gray-300 hover:border-accent/50 hover:bg-gray-50 cursor-pointer'
             }`}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+            onDragOver={(e) => { e.preventDefault(); if (!checking) setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
-            onDrop={onDrop}
-            onClick={() => fileRef.current.click()}
+            onDrop={(e) => { if (!checking) onDrop(e) }}
+            onClick={() => { if (!checking) fileRef.current.click() }}
           >
-            <Upload className="w-10 h-10 mx-auto mb-3 text-gray-400" />
-            <p className="text-sm font-medium text-gray-700">Drop your Excel file here</p>
-            <p className="text-xs text-gray-400 mt-1">or click to browse</p>
-            <p className="text-xs text-gray-300 mt-3">Accepts .xlsx · .xls · .csv</p>
+            {checking ? (
+              <>
+                <Spinner size="lg" />
+                <p className="text-sm font-medium text-gray-600 mt-3">Checking which AWBs are already on file…</p>
+              </>
+            ) : (
+              <>
+                <Upload className="w-10 h-10 mx-auto mb-3 text-gray-400" />
+                <p className="text-sm font-medium text-gray-700">Drop your Excel file here</p>
+                <p className="text-xs text-gray-400 mt-1">or click to browse</p>
+                <p className="text-xs text-gray-300 mt-3">Accepts .xlsx · .xls · .csv</p>
+              </>
+            )}
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onFileChange} />
           </div>
         </div>
@@ -406,12 +466,25 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
         <div className="space-y-4">
 
           {/* Summary cards */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-3">
               <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-green-800">{parsed.ready.length} ready</p>
+                <p className="text-sm font-semibold text-green-800">{parsed.ready.length} new</p>
                 <p className="text-xs text-green-600">Will be imported</p>
+              </div>
+            </div>
+            <div className={`border rounded-lg p-3 flex items-center gap-3 ${
+              parsed.duplicates.length > 0 ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'
+            }`}>
+              <Copy className={`w-5 h-5 shrink-0 ${parsed.duplicates.length > 0 ? 'text-blue-500' : 'text-gray-400'}`} />
+              <div>
+                <p className={`text-sm font-semibold ${parsed.duplicates.length > 0 ? 'text-blue-800' : 'text-gray-700'}`}>
+                  {parsed.duplicates.length} already in system
+                </p>
+                <p className={`text-xs ${parsed.duplicates.length > 0 ? 'text-blue-600' : 'text-gray-500'}`}>
+                  Ignored — no duplicates
+                </p>
               </div>
             </div>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-3">
@@ -429,6 +502,15 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
               </div>
             </div>
           </div>
+
+          {parsed.ready.length === 0 && parsed.duplicates.length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2">
+              <CheckCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-blue-800">
+                Every importable AWB in this file is already in the Master Shipment Log — there is nothing new to add.
+              </p>
+            </div>
+          )}
 
           {/* Unmatched explanation */}
           {(unmatchedClients.length > 0 || unmatchedAirlines.length > 0) && (
@@ -458,12 +540,12 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                 Ready to import{parsed.ready.length > 50 ? ' (first 50 shown)' : ''}
               </span>
-              {(parsed.unmatched.length > 0 || parsed.skipped.length > 0) && (
+              {excludedCount > 0 && (
                 <button
                   className="text-xs text-accent hover:underline"
                   onClick={() => setShowSkipped(s => !s)}
                 >
-                  {showSkipped ? 'Hide skipped/unmatched' : `Show skipped & unmatched (${parsed.unmatched.length + parsed.skipped.length})`}
+                  {showSkipped ? 'Hide excluded rows' : `Show excluded rows (${excludedCount})`}
                 </button>
               )}
             </div>
@@ -492,6 +574,16 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
                       <td className="px-3 py-1.5">
                         <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">{r.status}</span>
                       </td>
+                    </tr>
+                  ))}
+                  {showSkipped && parsed.duplicates.map((r, i) => (
+                    <tr key={`dup-${i}`} className="bg-blue-50/50">
+                      <td className="px-3 py-1.5 whitespace-nowrap text-blue-700">{r.flight_date}</td>
+                      <td className="px-3 py-1.5 font-mono text-blue-700">{r.awb_number}</td>
+                      <td colSpan={4} className="px-3 py-1.5 text-blue-600 italic">
+                        {r.reason} — ignored
+                      </td>
+                      <td />
                     </tr>
                   ))}
                   {showSkipped && parsed.unmatched.map((r, i) => (
@@ -534,7 +626,9 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
               <Button variant="secondary" onClick={onClose}>Cancel</Button>
               <Button onClick={handleImport} disabled={importing || parsed.ready.length === 0}>
                 {importing && <Spinner size="sm" />}
-                Import {parsed.ready.length} Shipments
+                {parsed.ready.length === 0
+                  ? 'Nothing to import'
+                  : `Import ${parsed.ready.length} Shipment${parsed.ready.length !== 1 ? 's' : ''}`}
               </Button>
             </div>
           </div>
@@ -548,9 +642,14 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
           <div>
             <p className="text-xl font-bold text-gray-800">{result.inserted} shipments imported</p>
             <p className="text-sm text-gray-500 mt-1">They are now visible in the Master Shipment Log.</p>
+            {result.preExisting > 0 && (
+              <p className="text-sm text-blue-600 mt-2">
+                {result.preExisting} AWB{result.preExisting !== 1 ? 's were' : ' was'} already in the system — ignored, no duplicates created.
+              </p>
+            )}
             {result.skippedDupes > 0 && (
               <p className="text-sm text-blue-600 mt-2">
-                {result.skippedDupes} already existed (same AWB number) — skipped, no duplicates created.
+                {result.skippedDupes} more turned out to already exist and {result.skippedDupes !== 1 ? 'were' : 'was'} skipped on insert.
               </p>
             )}
             {result.skippedUnmatched > 0 && (

@@ -6,6 +6,9 @@
 // by fixed column index.
 
 import * as XLSX from 'xlsx'
+import { awbKey, awbLookupVariants, chunk } from './awb'
+
+export { awbKey, awbLookupVariants, chunk }
 
 export function r2(n) { return Math.round(Number(n || 0) * 100) / 100 }
 
@@ -99,30 +102,6 @@ export function findHeader(rows, maxScan = 25) {
     }
   }
   return null
-}
-
-// ── AWB normalisation ─────────────────────────────────────────────────────────
-
-// AWBs are compared on their digits alone, so "157-9722-3991", "157 9722 3991"
-// and "15797223991" all collapse to the same key.
-export function awbKey(v) {
-  if (v === null || v === undefined) return ''
-  const digits = String(v).replace(/\D/g, '')
-  return digits.length >= 10 ? digits : ''
-}
-
-// Spellings to hand to a Supabase `.in()` lookup, since the stored column is
-// text and we cannot strip punctuation server-side.
-export function awbLookupVariants(raw) {
-  const key = awbKey(raw)
-  if (!key) return []
-  const variants = new Set([String(raw).trim(), key])
-  if (key.length === 11) {
-    variants.add(`${key.slice(0, 3)}-${key.slice(3, 7)}-${key.slice(7)}`)
-    variants.add(`${key.slice(0, 3)}-${key.slice(3)}`)
-    variants.add(`${key.slice(0, 3)} ${key.slice(3, 7)} ${key.slice(7)}`)
-  }
-  return [...variants].filter(Boolean)
 }
 
 // ── Row extraction ────────────────────────────────────────────────────────────
@@ -230,10 +209,4 @@ export function matchToShipments(parsedRows, shipments) {
   }
 
   return { matched, unmatched }
-}
-
-export function chunk(arr, size) {
-  const out = []
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
-  return out
 }
