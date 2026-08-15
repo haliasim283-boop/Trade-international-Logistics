@@ -5,7 +5,7 @@ import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
 import { Upload, CheckCircle, XCircle, AlertTriangle, Copy } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { awbKey, fetchExistingAwbKeys } from '../../lib/awb'
+import { awbKey, formatAwb, fetchExistingAwbKeys } from '../../lib/awb'
 
 // ── Excel Parser ──────────────────────────────────────────────────────────────
 
@@ -226,7 +226,9 @@ function parseTrackingRows(rows, airlines, clients) {
     const record = {
       rowNum:             idx + 2,
       flight_date:        date,
-      awb_number:         awbFull,
+      // Stored in canonical 960-0036-0931 form — the sheet holds the serial as
+      // a number, so it arrives with any leading zero already stripped.
+      awb_number:         formatAwb(awbFull),
       airline_id:         airline?.id ?? null,
       airlineName:        airline?.name ?? `prefix:${prefix.split('-')[0]}`,
       client_id:          client?.id ?? null,
@@ -394,8 +396,10 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
         .from('shipments')
         .upsert(chunk, { onConflict: 'awb_number', ignoreDuplicates: true })
         .select('id')
-      if (error) errors.push(error.message)
-      else {
+      if (error) {
+        // The same fault repeats once per batch — report it once.
+        if (!errors.includes(error.message)) errors.push(error.message)
+      } else {
         inserted     += data?.length ?? 0
         skippedDupes += chunk.length - (data?.length ?? 0)
       }
@@ -403,6 +407,7 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
 
     setResult({
       inserted,
+      failed:           payload.length - inserted - skippedDupes,
       skippedDupes,                             // caught by the DB safety net, normally 0
       preExisting:      parsed.duplicates.length, // filtered out before this screen
       skippedUnmatched: parsed.unmatched.length,
@@ -638,10 +643,19 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
       {/* ── Step 3: Done ── */}
       {step === 'done' && result && (
         <div className="py-8 text-center space-y-4">
-          <CheckCircle className="w-14 h-14 text-green-500 mx-auto" />
+          {result.failed > 0
+            ? <AlertTriangle className="w-14 h-14 text-amber-500 mx-auto" />
+            : <CheckCircle className="w-14 h-14 text-green-500 mx-auto" />}
           <div>
             <p className="text-xl font-bold text-gray-800">{result.inserted} shipments imported</p>
-            <p className="text-sm text-gray-500 mt-1">They are now visible in the Master Shipment Log.</p>
+            {result.failed > 0 ? (
+              <p className="text-sm text-danger mt-1">
+                {result.failed} row{result.failed !== 1 ? 's' : ''} could not be saved — see the error below. Nothing was
+                partially written; fix the cause and re-upload the same file.
+              </p>
+            ) : (
+              <p className="text-sm text-gray-500 mt-1">They are now visible in the Master Shipment Log.</p>
+            )}
             {result.preExisting > 0 && (
               <p className="text-sm text-blue-600 mt-2">
                 {result.preExisting} AWB{result.preExisting !== 1 ? 's were' : ' was'} already in the system — ignored, no duplicates created.
@@ -658,8 +672,16 @@ export function ShipmentImportModal({ airlines, clients, onImported, onClose }) 
               </p>
             )}
             {result.errors.length > 0 && (
-              <div className="mt-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 text-left">
-                <strong>{result.errors.length} batch error(s):</strong> {result.errors.join('; ')}
+              <div className="mt-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 text-left space-y-1">
+                {result.errors.map((e, i) => <p key={i}>{e}</p>)}
+                {result.errors.some(e => e.includes('ON CONFLICT')) && (
+                  <p className="pt-1 border-t border-red-200 text-red-800">
+                    <strong>Cause:</strong> the database is missing its unique index on{' '}
+                    <span className="font-mono">shipments.awb_number</span>. Run migration{' '}
+                    <span className="font-mono">014_shipments_awb_unique.sql</span> in the Supabase SQL editor,
+                    then import again.
+                  </p>
+                )}
               </div>
             )}
           </div>
