@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react
 import { useLocation } from 'react-router-dom'
 import {
   Printer, Plus, Trash2, Pencil, CheckCircle, Clock, CreditCard,
-  AlertCircle, ChevronDown, FileSpreadsheet,
+  AlertCircle, ChevronDown, FileSpreadsheet, Upload,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { Card, CardBody } from '../components/ui/Card'
@@ -21,6 +21,12 @@ const CassPdfConvertModal = lazy(() =>
     .then((m) => ({ default: m.CassPdfConvertModal })),
 )
 
+// xlsx is bulky too — same treatment.
+const CassExcelImportModal = lazy(() =>
+  import('../components/cass/CassExcelImportModal')
+    .then((m) => ({ default: m.CassExcelImportModal })),
+)
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -29,6 +35,12 @@ function r2(n) { return Math.round(Number(n || 0) * 100) / 100 }
 
 function fmt(n) {
   return Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+// Signed money: negatives in brackets, null (nothing imported yet) as a dash.
+function signed(n) {
+  if (n === null || n === undefined) return '—'
+  return n < 0 ? `(${fmt(Math.abs(n))})` : fmt(n)
 }
 
 function fmtDate(s) {
@@ -83,10 +95,26 @@ function defaultPeriodKey() {
 // Calculate CASS values for one shipment row.
 function calcRow(s) {
   const pkrRate    = Number(s.pkr_exchange_rate || 1)
-  const pwc        = r2(Number(s.chargeable_weight || 0) * Number(s.cass_airline_rate || 0) * pkrRate)
+  const cassRate   = Number(s.cass_airline_rate || 0)
+  const pwc        = r2(Number(s.chargeable_weight || 0) * cassRate * pkrRate)
   const oc_airline = r2(Number(s.other_charges_due_airline || 0))
   const net_amount = r2(pwc + oc_airline)
-  return { pwc, oc_airline, net_amount }
+
+  // Pluss Dipp is what IATA actually billed for this AWB, imported from the
+  // fortnightly sales report. null until an import has matched this AWB.
+  const hasDipp    = s.cass_pluss_dipp !== null && s.cass_pluss_dipp !== undefined
+  const pluss_dipp = hasDipp ? r2(Number(s.cass_pluss_dipp)) : null
+
+  // The two figures routinely differ by a small amount — the difference is
+  // shown, not acted on. Only meaningful where a CASS rate was typed on the
+  // shipment; without one, net_amount is 0 and the "difference" would just be
+  // the billed amount again.
+  const diff = hasDipp && cassRate > 0 ? r2(pluss_dipp - net_amount) : null
+
+  // What the client pays for freight, less what CASS bills us.
+  const profit = hasDipp ? r2(Number(s.freight_amount || 0) - pluss_dipp) : null
+
+  return { pwc, oc_airline, net_amount, pluss_dipp, diff, profit }
 }
 
 const STATUS_CONFIG = {
@@ -126,6 +154,7 @@ export default function CassReports() {
   const [changingStatus,    setChangingStatus]    = useState(false)
   const [showManageAirlines, setShowManageAirlines] = useState(false)
   const [showPdfConvert,    setShowPdfConvert]    = useState(false)
+  const [showExcelImport,   setShowExcelImport]   = useState(false)
 
   // ── Load airlines + settings once ──────────────────────────────────────────
   const loadAirlines = useCallback(async () => {
@@ -192,7 +221,7 @@ export default function CassReports() {
     // 2. Shipments for this airline + period
     const { data: sData, error: sErr } = await supabase
       .from('shipments')
-      .select('id,flight_date,awb_number,origin,destination,pieces,chargeable_weight,awb_upload_charges,other_charges_due_airline,amendment_charges,cass_airline_rate,pkr_exchange_rate,net_rate,clients(name)')
+      .select('id,flight_date,awb_number,origin,destination,pieces,chargeable_weight,awb_upload_charges,other_charges_due_airline,amendment_charges,cass_airline_rate,pkr_exchange_rate,net_rate,freight_amount,cass_pluss_dipp,clients(name)')
       .eq('airline_id', selectedAirlineId)
       .gte('flight_date', period.start)
       .lte('flight_date', period.end)
@@ -239,10 +268,21 @@ export default function CassReports() {
     const grandTotal     = netDueExport
     const totalPaid      = r2(payments.reduce((s, p) => s + Number(p.amount || 0), 0))
     const balanceDue     = r2(grandTotal - totalPaid)
+
+    // Imported CASS figures — only the AWBs an import actually matched count
+    // towards these, so a half-imported period doesn't read as a huge profit.
+    const dippRows        = rows.filter((r) => r.pluss_dipp !== null)
+    const dippCount       = dippRows.length
+    const totalPlussDipp  = r2(dippRows.reduce((s, r) => s + r.pluss_dipp, 0))
+    const totalProfit     = r2(dippRows.reduce((s, r) => s + r.profit, 0))
+    const totalFreight    = r2(dippRows.reduce((s, r) => s + Number(r.freight_amount || 0), 0))
+    const totalDiff       = r2(rows.reduce((s, r) => s + (r.diff ?? 0), 0))
+
     return {
       totalWeight, totalPWC, totalOCAirline,
       totalNet, awbCount, totalAdj,
       netDueExport, grandTotal, totalPaid, balanceDue,
+      dippCount, totalPlussDipp, totalProfit, totalFreight, totalDiff,
       status: cassperiod?.status ?? 'Pending',
     }
   }, [rows, adjustments, payments, cassperiod])
@@ -296,6 +336,9 @@ export default function CassReports() {
           <p className="text-sm text-gray-500 mt-0.5">Fortnightly CASS billing reports per airline</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button onClick={() => setShowExcelImport(true)} variant="secondary">
+            <Upload className="w-4 h-4" /> Import CASS Excel
+          </Button>
           <Button onClick={() => setShowPdfConvert(true)} variant="secondary">
             <FileSpreadsheet className="w-4 h-4" /> CASS PDF → Excel
           </Button>
@@ -429,12 +472,19 @@ export default function CassReports() {
           <Card>
             <div className="px-4 pt-4 pb-2 flex items-center justify-between">
               <h3 className="font-semibold text-navy text-sm uppercase tracking-wide">Per-AWB Detail</h3>
-              {rows.length > 0 && (
-                <span className="text-xs text-gray-400">{rows.length} shipment{rows.length !== 1 ? 's' : ''}</span>
-              )}
+              <div className="flex items-center gap-3">
+                {rows.length > 0 && recap.dippCount < rows.length && (
+                  <span className="text-xs text-amber-600">
+                    {rows.length - recap.dippCount} AWB{rows.length - recap.dippCount !== 1 ? 's' : ''} without imported Pluss Dipp
+                  </span>
+                )}
+                {rows.length > 0 && (
+                  <span className="text-xs text-gray-400">{rows.length} shipment{rows.length !== 1 ? 's' : ''}</span>
+                )}
+              </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse min-w-[1100px]">
+              <table className="w-full text-sm border-collapse min-w-[1400px]">
                 <thead className="bg-navy text-white">
                   <tr>
                     <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide w-10">SN</th>
@@ -443,14 +493,17 @@ export default function CassReports() {
                     <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide">DST</th>
                     <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Weight (KGS)</th>
                     <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Minus Other</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Pluss Dipp</th>
                     <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">OC Due Airline</th>
                     <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Net Amount</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Diff</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide">Profit</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {rows.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="text-center py-12 text-gray-400 text-sm">
+                      <td colSpan={11} className="text-center py-12 text-gray-400 text-sm">
                         No shipments found for {airline?.name} in {period?.label}.
                       </td>
                     </tr>
@@ -465,10 +518,23 @@ export default function CassReports() {
                           {Number(r.chargeable_weight || 0).toFixed(3)}
                         </td>
                         <td className="px-3 py-2 text-right font-mono text-gray-900">{fmt(r.pwc)}</td>
+                        <td className="px-3 py-2 text-right font-mono font-medium text-navy bg-sky-50/60">
+                          {r.pluss_dipp === null ? <span className="text-gray-300">—</span> : fmt(r.pluss_dipp)}
+                        </td>
                         <td className="px-3 py-2 text-right font-mono text-gray-700">
                           {r.oc_airline > 0 ? fmt(r.oc_airline) : '—'}
                         </td>
                         <td className="px-3 py-2 text-right font-mono font-semibold text-navy">{fmt(r.net_amount)}</td>
+                        <td className={`px-3 py-2 text-right font-mono ${
+                          r.diff === null ? 'text-gray-300' : r.diff < 0 ? 'text-green-600' : 'text-amber-700'
+                        }`}>
+                          {signed(r.diff)}
+                        </td>
+                        <td className={`px-3 py-2 text-right font-mono font-semibold ${
+                          r.profit === null ? 'text-gray-300' : r.profit < 0 ? 'text-danger' : 'text-green-700'
+                        }`}>
+                          {signed(r.profit)}
+                        </td>
                       </tr>
                     ))
                   )}
@@ -484,9 +550,20 @@ export default function CassReports() {
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">{fmt(recap.totalPWC)}</td>
                       <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">
+                        {recap.dippCount > 0 ? fmt(recap.totalPlussDipp) : '—'}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">
                         {recap.totalOCAirline > 0 ? fmt(recap.totalOCAirline) : '—'}
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono font-bold text-sm">{fmt(recap.totalNet)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-xs">
+                        {recap.dippCount > 0 ? signed(recap.totalDiff) : '—'}
+                      </td>
+                      <td className={`px-3 py-2.5 text-right font-mono font-bold text-sm ${
+                        recap.dippCount === 0 ? '' : recap.totalProfit < 0 ? 'text-red-300' : 'text-green-300'
+                      }`}>
+                        {recap.dippCount > 0 ? signed(recap.totalProfit) : '—'}
+                      </td>
                     </tr>
                   </tfoot>
                 )}
@@ -530,6 +607,31 @@ export default function CassReports() {
                     </tr>
                   </tbody>
                 </table>
+
+                {/* Imported CASS figures — informational; the payable above is
+                    still the app's own calculation, since the two differ slightly. */}
+                {recap.dippCount > 0 && (
+                  <table className="w-full text-sm mt-4 pt-2 border-t border-gray-100">
+                    <tbody>
+                      <tr>
+                        <td colSpan={2} className="pt-1 pb-2 text-xs uppercase tracking-wide font-semibold text-gray-400">
+                          From imported CASS sheet ({recap.dippCount} of {rows.length} AWBs)
+                        </td>
+                      </tr>
+                      <RecapRow label="Total Pluss Dipp (CASS payable)" value={recap.totalPlussDipp} />
+                      <RecapRow label="Freight charged on those AWBs" value={recap.totalFreight} sub />
+                      <RecapRow label="Difference vs Net Amount" value={recap.totalDiff} sub />
+                      <tr className={recap.totalProfit < 0 ? 'bg-red-50' : 'bg-green-50'}>
+                        <td className="px-3 py-2.5 font-bold text-gray-900 rounded-bl-lg">PROFIT</td>
+                        <td className={`px-3 py-2.5 text-right font-mono font-bold text-lg rounded-br-lg ${
+                          recap.totalProfit < 0 ? 'text-danger' : 'text-green-700'
+                        }`}>
+                          PKR {signed(recap.totalProfit)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
               </div>
             </Card>
 
@@ -770,6 +872,19 @@ export default function CassReports() {
           </div>
         }>
           <CassPdfConvertModal onClose={() => setShowPdfConvert(false)} />
+        </Suspense>
+      )}
+
+      {showExcelImport && (
+        <Suspense fallback={
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <Spinner size="lg" />
+          </div>
+        }>
+          <CassExcelImportModal
+            onClose={() => setShowExcelImport(false)}
+            onImported={loadData}
+          />
         </Suspense>
       )}
     </div>

@@ -12,6 +12,12 @@ function fmtDate(s) {
   return new Date(y, m - 1, d).toLocaleDateString('en-GB')
 }
 
+// Signed money: negatives in brackets, null (nothing imported yet) as a dash.
+function signed(n) {
+  if (n === null || n === undefined) return '—'
+  return n < 0 ? `(${fmt(Math.abs(n))})` : fmt(n)
+}
+
 export function printCassReport({ airline, period, rows, recap, adjustments, payments, settings }) {
   const awbRows = rows.map((r, i) => `
     <tr class="${r.isAdj ? 'adj-row' : ''}">
@@ -21,8 +27,11 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
       <td class="center">${esc(r.destination)}</td>
       <td class="num">${r.isAdj ? '' : Number(r.chargeable_weight || 0).toFixed(3)}</td>
       <td class="num">${r.isAdj ? '' : fmt(r.pwc)}</td>
+      <td class="num">${r.isAdj ? '' : signed(r.pluss_dipp)}</td>
       <td class="num">${r.isAdj ? '' : fmt(r.oc_airline)}</td>
       <td class="num bold">${fmt(r.isAdj ? r.amount : r.net_amount)}</td>
+      <td class="num ${r.diff < 0 ? 'credit' : ''}">${r.isAdj ? '' : signed(r.diff)}</td>
+      <td class="num bold ${r.profit == null ? '' : r.profit < 0 ? 'danger' : 'credit'}">${r.isAdj ? '' : signed(r.profit)}</td>
     </tr>`).join('')
 
   const payRows = payments.map((p) => `
@@ -128,8 +137,11 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
         <th class="center">DST</th>
         <th class="num">Weight<br/>(KGS)</th>
         <th class="num">Minus<br/>Other</th>
+        <th class="num">Pluss<br/>Dipp</th>
         <th class="num">OC Due<br/>Airline</th>
         <th class="num">Net<br/>Amount</th>
+        <th class="num">Diff</th>
+        <th class="num">Profit</th>
       </tr>
     </thead>
     <tbody>
@@ -140,8 +152,11 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
         <td colspan="4" class="bold">TOTALS</td>
         <td class="num">${Number(recap.totalWeight || 0).toFixed(3)}</td>
         <td class="num">${fmt(recap.totalPWC)}</td>
+        <td class="num">${recap.dippCount > 0 ? fmt(recap.totalPlussDipp) : '—'}</td>
         <td class="num">${fmt(recap.totalOCAirline)}</td>
         <td class="num">${fmt(recap.totalNet)}</td>
+        <td class="num">${recap.dippCount > 0 ? signed(recap.totalDiff) : '—'}</td>
+        <td class="num">${recap.dippCount > 0 ? signed(recap.totalProfit) : '—'}</td>
       </tr>
     </tfoot>
   </table>
@@ -154,6 +169,11 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
       ${adjustments.map((a) => `<tr><td class="recap-sub">&nbsp;&nbsp;${esc(a.description)}</td><td class="${Number(a.amount) < 0 ? 'credit' : ''}">${Number(a.amount) >= 0 ? '+' : ''}${fmt(a.amount)}</td></tr>`).join('')}
       <tr class="recap-total"><td>Net Due Export</td><td>PKR ${fmt(recap.netDueExport)}</td></tr>
       <tr class="grand"><td>GRAND TOTAL PAYABLE</td><td>PKR ${fmt(recap.grandTotal)}</td></tr>
+      ${recap.dippCount > 0 ? `
+      <tr><td class="bold" style="padding-top:8px">Total Pluss Dipp (CASS payable)</td><td style="padding-top:8px">PKR ${fmt(recap.totalPlussDipp)}</td></tr>
+      <tr><td class="recap-sub">&nbsp;&nbsp;Freight charged on those ${recap.dippCount} AWBs</td><td>PKR ${fmt(recap.totalFreight)}</td></tr>
+      <tr><td class="recap-sub">&nbsp;&nbsp;Difference vs Net Amount</td><td class="${recap.totalDiff < 0 ? 'credit' : ''}">${signed(recap.totalDiff)}</td></tr>
+      <tr class="recap-total"><td>PROFIT</td><td class="${recap.totalProfit < 0 ? 'danger' : 'credit'}">PKR ${signed(recap.totalProfit)}</td></tr>` : ''}
     </table>
   </div>
 
