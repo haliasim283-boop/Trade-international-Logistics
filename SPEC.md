@@ -242,25 +242,19 @@ System automatically identifies fortnights. User selects: Airline + Billing Peri
 ### Per-AWB Section
 
 Columns matching CASS format:
-`SERIAL NO. | AWB NO. | ORG | DST | WEIGHT | PREPAID WEIGHT CHARGES | COMMISSION | OTHER CHARGES DUE AGENT | OTHER CHARGES DUE AIRLINE | INCENTIVE | TAX WITHHELD | SPIN | NET AMOUNT`
+`SERIAL NO. | AWB NO. | ORG | DST | WEIGHT | MINUS OTHER | OTHER CHARGES DUE AIRLINE | NET AMOUNT`
 
 Calculations per AWB:
-- **Prepaid Weight Charges** = Weight × CASS Airline Rate
-- **Commission** = Prepaid Weight Charges × Commission % (from Airline configuration)
-- **Other Charges Due Agent** = fuel surcharges/handling fees due back to agent (entered per AWB or pulled from Other Charges field)
-- **Tax Withheld** = 12% of (Net Amount Before Tax) — WHT
-- **SPIN** = sequential shipment index
-- **Net Amount** = Prepaid Weight Charges − Commission − Other Charges Due Agent + Tax Withheld (net payable to airline per AWB)
+- **Minus Other** = Weight × CASS Airline Rate × PKR exchange rate
+- **Other Charges Due Airline** = fuel surcharges/handling fees due to the airline (entered per AWB)
+- **Net Amount** = Minus Other + Other Charges Due Airline (net payable to airline per AWB)
 
 ### Recapitulation Section
-- Total Commissionable Sales (sum of all Prepaid Weight Charges)
-- Total Commission Due Agent
-- Total Other Charges Due Agent
-- Tax Withheld Due Airline (12%)
-- **BTA / Additional Adjustments** = BTA Rate per AWB × Number of AWBs (configured per airline — e.g., PKR 1,800 per AWB for IATA insurance)
-- **Net Due Export** = Total Sales − Commission − Other Charges Due Agent + Tax Withheld
-- **Net Due DIP** = BTA total
-- **Grand Total Payable** = Net Due Export + Net Due DIP
+- Total Minus Other (sum of all per-AWB Minus Other)
+- Total Other Charges Due Airline
+- Manual adjustments / corrections for the period
+- **Net Due Export** = Total Minus Other + Other Charges Due Airline + Adjustments
+- **Grand Total Payable** = Net Due Export
 
 ### Payment Tracking
 - Mark period as: Pending → Billed → Paid

@@ -550,7 +550,6 @@ export default function Settings() {
       bank_2_account_name:     settings.bank_2_account_name,
       idc_tax_rate:            settings.idc_tax_rate,
       invoice_overdue_days:    settings.invoice_overdue_days,
-      cass_wht_rate:           settings.cass_wht_rate,
       default_form_e_rate_min:    settings.default_form_e_rate_min,
       default_form_e_rate_max:    settings.default_form_e_rate_max,
       default_awb_fixed_fee:      settings.default_awb_fixed_fee,
@@ -757,10 +756,6 @@ export default function Settings() {
                   <Field label="IDC Tax Rate % (PEW in-house clearing)">
                     <NumberInput step="0.01" value={settings.idc_tax_rate}
                       onChange={(e) => setField('idc_tax_rate', e.target.value)} />
-                  </Field>
-                  <Field label="CASS WHT Rate % (Withholding Tax)">
-                    <NumberInput step="0.01" value={settings.cass_wht_rate}
-                      onChange={(e) => setField('cass_wht_rate', e.target.value)} />
                   </Field>
                   <Field label="Invoice Overdue Days">
                     <NumberInput step="1" value={settings.invoice_overdue_days}

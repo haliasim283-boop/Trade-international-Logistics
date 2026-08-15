@@ -21,19 +21,8 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
       <td class="center">${esc(r.destination)}</td>
       <td class="num">${r.isAdj ? '' : Number(r.chargeable_weight || 0).toFixed(3)}</td>
       <td class="num">${r.isAdj ? '' : fmt(r.pwc)}</td>
-      <td class="num">${r.isAdj ? '' : fmt(r.commission)}</td>
       <td class="num">${r.isAdj ? '' : fmt(r.oc_airline)}</td>
-      <td class="num">${r.isAdj ? '' : fmt(r.incentive)}</td>
-      <td class="num">${r.isAdj ? '' : (recap.isPia ? (r.tax_withheld > 0 ? `(${fmt(r.tax_withheld)})` : '&mdash;') : 'Nil')}</td>
-      <td class="center">${r.isAdj ? '—' : i + 1}</td>
       <td class="num bold">${fmt(r.isAdj ? r.amount : r.net_amount)}</td>
-    </tr>`).join('')
-
-  const adjRows = adjustments.map((a) => `
-    <tr>
-      <td colspan="2" class="label">${esc(a.description)}</td>
-      <td colspan="10"></td>
-      <td class="num ${Number(a.amount) >= 0 ? '' : 'credit'}">${Number(a.amount) >= 0 ? '+' : ''}${fmt(a.amount)}</td>
     </tr>`).join('')
 
   const payRows = payments.map((p) => `
@@ -138,12 +127,8 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
         <th class="center">ORG</th>
         <th class="center">DST</th>
         <th class="num">Weight<br/>(KGS)</th>
-        <th class="num">Prepaid Wgt<br/>Charges</th>
-        <th class="num">Commission</th>
+        <th class="num">Minus<br/>Other</th>
         <th class="num">OC Due<br/>Airline</th>
-        <th class="num">Incentive</th>
-        <th class="num">Tax<br/>Withheld</th>
-        <th class="center">SPIN</th>
         <th class="num">Net<br/>Amount</th>
       </tr>
     </thead>
@@ -155,11 +140,7 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
         <td colspan="4" class="bold">TOTALS</td>
         <td class="num">${Number(recap.totalWeight || 0).toFixed(3)}</td>
         <td class="num">${fmt(recap.totalPWC)}</td>
-        <td class="num">${fmt(recap.totalCommission)}</td>
         <td class="num">${fmt(recap.totalOCAirline)}</td>
-        <td class="num">${fmt(recap.totalIncentive)}</td>
-        <td class="num">${recap.isPia ? `(${fmt(recap.totalWHT)})` : 'Nil'}</td>
-        <td></td>
         <td class="num">${fmt(recap.totalNet)}</td>
       </tr>
     </tfoot>
@@ -168,10 +149,8 @@ export function printCassReport({ airline, period, rows, recap, adjustments, pay
   <h2 class="section" style="margin-top:14px">Recapitulation</h2>
   <div class="recap">
     <table>
-      <tr><td>Total Commissionable Sales (Weight Charges)</td><td>PKR ${fmt(recap.totalPWC)}</td></tr>
-      <tr><td class="recap-sub">&nbsp;&nbsp;Less: Commission Due Agent (USD ${Number(airline?.cass_commission_usd_per_kg ?? 0).toFixed(4)}/kg)</td><td>(${fmt(recap.totalCommission)})</td></tr>
+      <tr><td>Total Minus Other</td><td>PKR ${fmt(recap.totalPWC)}</td></tr>
       ${recap.totalOCAirline > 0 ? `<tr><td class="recap-sub">&nbsp;&nbsp;Other Charges Due Airline</td><td>+${fmt(recap.totalOCAirline)}</td></tr>` : ''}
-      ${recap.isPia && recap.totalWHT > 0 ? `<tr class="wht-row"><td class="recap-sub">&nbsp;&nbsp;WHT @ ${settings?.cass_wht_rate ?? 12}% of Profit</td><td>+${fmt(recap.totalWHT)}</td></tr>` : ''}
       ${adjustments.map((a) => `<tr><td class="recap-sub">&nbsp;&nbsp;${esc(a.description)}</td><td class="${Number(a.amount) < 0 ? 'credit' : ''}">${Number(a.amount) >= 0 ? '+' : ''}${fmt(a.amount)}</td></tr>`).join('')}
       <tr class="recap-total"><td>Net Due Export</td><td>PKR ${fmt(recap.netDueExport)}</td></tr>
       <tr class="grand"><td>GRAND TOTAL PAYABLE</td><td>PKR ${fmt(recap.grandTotal)}</td></tr>
