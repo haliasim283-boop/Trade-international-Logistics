@@ -264,16 +264,17 @@ export default function CassReports() {
     const totalNet       = r2(rows.reduce((s, r) => s + r.net_amount, 0))
     const awbCount       = rows.length
     const totalAdj       = r2(adjustments.reduce((s, a) => s + Number(a.amount || 0), 0))
-    const netDueExport   = r2(totalNet + totalAdj)
+    
+    // Imported CASS figures — calculate net due based on Pluss Dipp (what user pays airline)
+    const dippRows        = rows.filter((r) => r.pluss_dipp !== null)
+    const totalPlussDipp  = r2(dippRows.reduce((s, r) => s + r.pluss_dipp, 0))
+    const netDueExport   = r2(totalPlussDipp + totalAdj)
     const grandTotal     = netDueExport
     const totalPaid      = r2(payments.reduce((s, p) => s + Number(p.amount || 0), 0))
     const balanceDue     = r2(grandTotal - totalPaid)
 
-    // Imported CASS figures — only the AWBs an import actually matched count
-    // towards these, so a half-imported period doesn't read as a huge profit.
-    const dippRows        = rows.filter((r) => r.pluss_dipp !== null)
+    // Additional CASS metrics
     const dippCount       = dippRows.length
-    const totalPlussDipp  = r2(dippRows.reduce((s, r) => s + r.pluss_dipp, 0))
     const totalProfit     = r2(dippRows.reduce((s, r) => s + r.profit, 0))
     const totalFreight    = r2(dippRows.reduce((s, r) => s + Number(r.freight_amount || 0), 0))
     const totalDiff       = r2(rows.reduce((s, r) => s + (r.diff ?? 0), 0))
@@ -582,10 +583,6 @@ export default function CassReports() {
               <div className="px-4 pb-4">
                 <table className="w-full text-sm">
                   <tbody>
-                    <RecapRow label="Total Minus Other" value={recap.totalPWC} />
-                    {recap.totalOCAirline > 0 && (
-                      <RecapRow label="Other Charges Due Airline" value={recap.totalOCAirline} sub />
-                    )}
                     {adjustments.map((a) => (
                       <RecapRow
                         key={a.id}
