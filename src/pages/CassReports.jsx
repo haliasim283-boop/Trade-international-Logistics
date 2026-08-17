@@ -123,6 +123,64 @@ const STATUS_CONFIG = {
   Paid:    { color: 'bg-green-100 text-green-700',  icon: CheckCircle,  label: 'Paid' },
 }
 
+// ── Pluss Dipp Edit Form ──────────────────────────────────────────────────────
+function PlussDippEditForm({ row, onSave, onCancel }) {
+  const [value, setValue] = useState(row.pluss_dipp?.toString() ?? '')
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    const num = parseFloat(value)
+    if (isNaN(num) || num < 0) {
+      alert('Please enter a valid positive number')
+      return
+    }
+    setSaving(true)
+    try {
+      await onSave(num)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div>
+      <div className="mb-4">
+        <label className="block text-xs font-medium text-gray-700 mb-2">
+          Pluss Dipp Amount (PKR)
+        </label>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="0.00"
+          disabled={saving}
+          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent disabled:bg-gray-50"
+          autoFocus
+        />
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex-1 bg-accent text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-accent/90 disabled:bg-gray-400 transition-colors flex items-center justify-center gap-2"
+        >
+          {saving && <Spinner />}
+          {saving ? 'Saving...' : 'Save'}
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={saving}
+          className="flex-1 bg-gray-200 text-gray-900 px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-300 disabled:bg-gray-100 transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const PERIODS = generatePeriods()
@@ -149,6 +207,8 @@ export default function CassReports() {
   const [editPayment,       setEditPayment]       = useState(null)
   const [showAdjModal,      setShowAdjModal]      = useState(false)
   const [editAdj,           setEditAdj]           = useState(null)
+  const [showPlussDippModal, setShowPlussDippModal] = useState(false)
+  const [editPlussDippRow,   setEditPlussDippRow]   = useState(null)
   const [deletePayId,       setDeletePayId]       = useState(null)
   const [deleteAdjId,       setDeleteAdjId]       = useState(null)
   const [changingStatus,    setChangingStatus]    = useState(false)
@@ -310,6 +370,23 @@ export default function CassReports() {
   async function deleteAdj() {
     await supabase.from('cass_adjustments').delete().eq('id', deleteAdjId)
     setDeleteAdjId(null); loadData()
+  }
+
+  // ── Pluss Dipp handler ───────────────────────────────────────────────────────
+  async function savePlussDipp(value) {
+    if (!editPlussDippRow) return
+    try {
+      const { error: e } = await supabase
+        .from('shipments')
+        .update({ cass_pluss_dipp: value, updated_at: new Date().toISOString() })
+        .eq('id', editPlussDippRow.id)
+      if (e) { alert(e.message); return }
+      setShowPlussDippModal(false)
+      setEditPlussDippRow(null)
+      loadData()
+    } catch (err) {
+      alert('Error saving Pluss Dipp: ' + err.message)
+    }
   }
 
   // ── Print ───────────────────────────────────────────────────────────────────
@@ -519,7 +596,7 @@ export default function CassReports() {
                           {Number(r.chargeable_weight || 0).toFixed(3)}
                         </td>
                         <td className="px-3 py-2 text-right font-mono text-gray-900">{fmt(r.pwc)}</td>
-                        <td className="px-3 py-2 text-right font-mono font-medium text-navy bg-sky-50/60">
+                        <td className="px-3 py-2 text-right font-mono font-medium text-navy bg-sky-50/60 cursor-pointer hover:bg-sky-100/80 transition-colors" onClick={() => { setEditPlussDippRow(r); setShowPlussDippModal(true) }}>
                           {r.pluss_dipp === null ? <span className="text-gray-300">—</span> : fmt(r.pluss_dipp)}
                         </td>
                         <td className="px-3 py-2 text-right font-mono text-gray-700">
@@ -853,6 +930,24 @@ export default function CassReports() {
           onConfirm={deleteAdj}
           onCancel={() => setDeleteAdjId(null)}
         />
+      )}
+
+      {showPlussDippModal && editPlussDippRow && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-sm w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Edit Pluss Dipp — {editPlussDippRow.awb_number}
+            </h3>
+            <PlussDippEditForm
+              row={editPlussDippRow}
+              onSave={savePlussDipp}
+              onCancel={() => {
+                setShowPlussDippModal(false)
+                setEditPlussDippRow(null)
+              }}
+            />
+          </div>
+        </div>
       )}
 
       {showManageAirlines && (
