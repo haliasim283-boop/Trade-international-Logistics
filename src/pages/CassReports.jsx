@@ -111,8 +111,10 @@ function calcRow(s) {
   // the billed amount again.
   const diff = hasDipp && cassRate > 0 ? r2(pluss_dipp - net_amount) : null
 
-  // What the client pays for freight, less what CASS bills us.
-  const profit = hasDipp ? r2(Number(s.freight_amount || 0) - pluss_dipp) : null
+  // Profit includes freight and airline other charges, less what CASS bills us.
+  const profit = hasDipp
+    ? r2(Number(s.freight_amount || 0) + oc_airline - pluss_dipp)
+    : null
 
   return { pwc, oc_airline, net_amount, pluss_dipp, diff, profit }
 }

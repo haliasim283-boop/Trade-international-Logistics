@@ -206,7 +206,7 @@ export function CassExcelImportModal({ onClose, onImported }) {
                   Matched AWBs
                 </span>
                 <span className="text-xs text-gray-400">
-                  Diff = Pluss Dipp − Net Amount · Profit = Freight − Pluss Dipp
+                  Diff = Pluss Dipp − Net Amount · Profit = Freight + Other Charges − Pluss Dipp
                 </span>
               </div>
               <div className="max-h-72 overflow-y-auto">

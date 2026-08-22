@@ -201,7 +201,7 @@ export function matchToShipments(parsedRows, shipments) {
       // without one the "difference" is just the billed amount over again.
       hasCassRate:   cassRate > 0,
       diff:          cassRate > 0 ? r2(row.plussDipp - netAmount) : null,
-      profit:        r2(Number(s.freight_amount || 0) - row.plussDipp),
+      profit:        r2(Number(s.freight_amount || 0) + Number(s.other_charges_due_airline || 0) - row.plussDipp),
       alreadySet:    s.cass_pluss_dipp !== null && s.cass_pluss_dipp !== undefined,
       changed:       s.cass_pluss_dipp === null || s.cass_pluss_dipp === undefined
                        || r2(Number(s.cass_pluss_dipp)) !== row.plussDipp,
