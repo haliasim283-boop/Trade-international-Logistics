@@ -18,7 +18,7 @@ export function PaymentModal({ clientId, existing, onSave, onUpdate, onClose, sa
     payment_date:   existing?.payment_date   ?? today(),
     amount:         existing?.amount?.toString() ?? '',
     payment_method: existing?.payment_method ?? 'Bank Transfer',
-    bank_account:   existing?.bank_account   ?? 'Sindh Bank',
+    bank_account:   existing?.bank_account   ?? 'Sindh Bank Trade Account',
     transaction_id: existing?.transaction_id ?? '',
     description:    existing?.description    ?? '',
     notes:          existing?.notes          ?? '',
@@ -36,9 +36,7 @@ export function PaymentModal({ clientId, existing, onSave, onUpdate, onClose, sa
   useEffect(() => {
     if (descEdited) return
     const parts = ['AMOUNT RECEIVED']
-    if (form.bank_account && form.bank_account !== 'Other') {
-      parts.push(form.bank_account.toUpperCase() + ' BANK')
-    }
+    if (form.bank_account && form.bank_account !== 'Other') parts.push('FROM', form.bank_account.toUpperCase())
     if (form.transaction_id) parts.push(`TRX ID ${form.transaction_id}`)
     setForm((f) => ({ ...f, description: parts.join(' ') }))
   }, [form.bank_account, form.transaction_id, descEdited])
@@ -124,7 +122,7 @@ export function PaymentModal({ clientId, existing, onSave, onUpdate, onClose, sa
           <label className={LBL}>Description (shown in ledger statement)</label>
           <input className={INP} value={form.description}
             onChange={(e) => { setDescEdited(true); set('description')(e) }}
-            placeholder="AMOUNT RECEIVED SINDH BANK TRX ID ..." />
+            placeholder="AMOUNT RECEIVED SINDH BANK TRADE ACCOUNT TRX ID ..." />
           {!descEdited && (
             <p className="text-xs text-gray-400 mt-1">Auto-generated from bank + TRX — edit to customise</p>
           )}

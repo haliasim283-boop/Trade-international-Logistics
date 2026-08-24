@@ -27,7 +27,7 @@ function fmtDate(s) {
 function buildPaymentDesc(p) {
   if (p.description) return p.description
   const parts = ['AMOUNT RECEIVED']
-  if (p.bank_account && p.bank_account !== 'Other') parts.push(p.bank_account.toUpperCase() + ' BANK')
+  if (p.bank_account && p.bank_account !== 'Other') parts.push('FROM', p.bank_account.toUpperCase())
   if (p.transaction_id) parts.push(`TRX ID ${p.transaction_id}`)
   return parts.join(' ')
 }
@@ -78,7 +78,7 @@ function buildEntries(shipments, payments, adjustments, opening) {
       payment_date: p.payment_date,
       amount:      Number(p.amount || 0),
       payment_method: p.payment_method ?? 'Bank Transfer',
-      bank_account: p.bank_account ?? 'Sindh Bank',
+      bank_account: p.bank_account ?? 'Sindh Bank Trade Account',
       transaction_id: p.transaction_id ?? '',
       description: buildPaymentDesc(p),
       notes:       p.notes ?? '',
