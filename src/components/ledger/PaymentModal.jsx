@@ -5,8 +5,8 @@ import { Spinner } from '../ui/Spinner'
 import { PaymentImageUpload } from '../ui/PaymentImageUpload'
 import { uploadPaymentImage } from '../../lib/uploadPaymentImage'
 
-const BANKS   = ['Sindh Bank', 'Bank Al Habib', 'HMB', 'HBL', 'BOK', 'Askari', 'Meezan', 'Soneri', 'Other']
-const METHODS = ['Bank Transfer', 'RAAST', 'Cheque', 'Cash', 'Foreign Remittance']
+const BANKS   = ['Sindh Bank Trade Account', 'Bank Al Habib Trade Account', 'Bank Al Habib Haider Ali', 'HMB Trade Account', 'HBL Trade Account', 'BOK Trade Account', 'Askari Trade Account', 'Meezan Trade Account', 'Soneri Trade Account', 'JS Trade Account', 'UBL Trade Account', 'Other']
+const METHODS = ['Bank Transfer', 'RAAST', 'Cheque', 'Cash by hand', 'Foreign Remittance', 'Cash Deposit']
 
 function today() { return new Date().toISOString().slice(0, 10) }
 

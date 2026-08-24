@@ -95,16 +95,17 @@ function parseDate(s) {
 // ── Bank / payment-method detection from free-text description ───────────────
 
 const BANK_KEYWORDS = [
-  ['sindh',  'Sindh Bank'],
-  ['bahl',   'Bank Al Habib'],
-  ['habib',  'Bank Al Habib'],
-  ['hmb',    'HMB'],
-  ['habib metro', 'HMB'],
-  ['hbl',    'HBL'],
-  ['bok',    'BOK'],
-  ['askari', 'Askari'],
-  ['meezan', 'Meezan'],
-  ['soneri', 'Soneri'],
+  ['sindh',  'Sindh Bank Trade Account'],
+  ['bahl',   'Bank Al Habib Trade Account'],
+  ['habib',  'Bank Al Habib Haider Ali'],
+  ['hmb',    'HMB Trade Account'],
+  ['habib metro', 'HMB Trade Account'],
+  ['hbl',    'HBL Trade Account'],
+  ['bok',    'BOK Trade Account'],
+  ['askari', 'Askari Trade Account'],
+  ['meezan', 'Meezan Trade Account'],
+  ['soneri', 'Soneri Trade Account'],
+  ['js', 'JS Trade Account'],
 ]
 
 function detectBank(text) {
