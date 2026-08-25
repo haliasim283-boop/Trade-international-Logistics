@@ -196,7 +196,7 @@ export default function Dashboard() {
       setKpis({ outstandingReceivables, cassPayable, formEPayable, clearPayable })
 
       // ── Status counts ───────────────────────────────────────────────────────
-      const sc = { PNDNG: 0, 'AP-BLZ': 0, BKD: 0, CNCLD: 0, 'NO SHOW': 0, OFFLOADED: 0, SHPD: 0 }
+      const sc = { PNDNG: 0, 'AP-BLZ': 0, BKD: 0, CNCLD: 0, 'NO SHOW': 0, OFFLOADED: 0, SHPD: 0, FBL: 0 }
       for (const s of (allShips || [])) { if (sc[s.status] !== undefined) sc[s.status]++ }
       setStatusCounts(sc)
 
@@ -257,6 +257,7 @@ export default function Dashboard() {
     { status: 'NO SHOW',   color: 'bg-orange-100 text-orange-800' },
     { status: 'OFFLOADED', color: 'bg-purple-100 text-purple-800' },
     { status: 'SHPD',      color: 'bg-green-100 text-green-800' },
+    { status: 'FBL',       color: 'bg-emerald-100 text-emerald-800' },
   ]
 
   const STATUS_DOT = {
@@ -267,6 +268,7 @@ export default function Dashboard() {
     'NO SHOW':   'bg-orange-500',
     'OFFLOADED': 'bg-purple-500',
     'SHPD':      'bg-green-500',
+    'FBL':       'bg-emerald-500',
   }
 
   if (!supabase) return <div className="p-6 text-danger text-sm">Supabase not configured.</div>
@@ -541,6 +543,7 @@ export default function Dashboard() {
                         <td className="px-3 py-2.5">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                             s.status === 'SHPD'      ? 'bg-green-100 text-green-800' :
+                            s.status === 'FBL'       ? 'bg-emerald-100 text-emerald-800' :
                             s.status === 'BKD'       ? 'bg-blue-100 text-blue-800' :
                             s.status === 'AP-BLZ'    ? 'bg-amber-100 text-amber-800' :
                             s.status === 'CNCLD'     ? 'bg-red-100 text-red-700' :

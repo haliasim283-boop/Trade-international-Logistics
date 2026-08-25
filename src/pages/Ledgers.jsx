@@ -343,6 +343,7 @@ export default function Ledgers() {
         .from('shipments')
         .select('id, flight_date, awb_number, origin, destination, pieces, chargeable_weight, net_rate, clearing_charges, idc_tax, awb_upload_charges, other_charges_due_airline, amendment_charges, form_e_amount_pkr, total_receivable, airlines(bta_rate_per_awb)')
         .eq('client_id', clientId)
+        .in('status', ['SHPD', 'FBL'])
         .order('flight_date', { ascending: true })
         .order('created_at',  { ascending: true }),
       supabase

@@ -141,6 +141,7 @@ const STATUS_ROW = {
   'NO SHOW':   'bg-orange-50',
   'OFFLOADED': 'bg-purple-50',
   'SHPD':      'bg-green-50',
+  'FBL':       'bg-emerald-50',
   'EMAILED':   'bg-teal-50',
 }
 
@@ -152,10 +153,11 @@ const STATUS_BADGE = {
   'NO SHOW':   'bg-orange-100 text-orange-700',
   'OFFLOADED': 'bg-purple-100 text-purple-700',
   'SHPD':      'bg-green-100 text-green-700',
+  'FBL':       'bg-emerald-100 text-emerald-700',
   'EMAILED':   'bg-teal-100 text-teal-700',
 }
 
-const STATUSES = ['PNDNG', 'AP-BLZ', 'BKD', 'CNCLD', 'NO SHOW', 'OFFLOADED', 'SHPD', 'EMAILED']
+const STATUSES = ['PNDNG', 'AP-BLZ', 'BKD', 'CNCLD', 'NO SHOW', 'OFFLOADED', 'SHPD', 'FBL', 'EMAILED']
 
 const PAGE_SIZE = 50
 

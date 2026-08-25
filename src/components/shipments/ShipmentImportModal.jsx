@@ -105,6 +105,7 @@ function parseDate(s) {
 
 const STATUS_MAP = {
   shpd:        'SHPD',
+  fbl:         'FBL',
   bkd:         'BKD',
   pndng:       'PNDNG',
   'ap-blz':    'AP-BLZ',

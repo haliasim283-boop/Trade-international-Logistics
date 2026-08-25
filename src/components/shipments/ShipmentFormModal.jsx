@@ -59,7 +59,7 @@ function pkr(n) {
   return 'PKR ' + r2(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-const STATUSES = ['PNDNG', 'AP-BLZ', 'BKD', 'CNCLD', 'NO SHOW', 'OFFLOADED', 'SHPD', 'EMAILED']
+const STATUSES = ['PNDNG', 'AP-BLZ', 'BKD', 'CNCLD', 'NO SHOW', 'OFFLOADED', 'SHPD', 'FBL', 'EMAILED']
 
 const EMPTY = {
   flight_date: new Date().toISOString().slice(0, 10),
