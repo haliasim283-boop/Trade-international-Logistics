@@ -410,6 +410,7 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
   const [result,    setResult]    = useState(null)
   const [error,     setError]     = useState(null)
   const [showAll,   setShowAll]   = useState(false)
+  const [paymentsOnly, setPaymentsOnly] = useState(false)
   const [classifications, setClassifications] = useState({}) // rowNum -> { type: 'skip'|'credit'|'debit', amount }
   const fileRef = useRef()
 
@@ -442,6 +443,7 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
       try {
         const result = parseLedgerRows(rows, existingShipments ?? [], airlines ?? [], existingPayments ?? [], existingAdjustments ?? [], awbFixedFee)
         setParsed(result)
+        setPaymentsOnly(false)
         setClassifications(Object.fromEntries(
           result.needsClassification.map(r => [r.rowNum, { type: 'skip', amount: r.amount }])
         ))
@@ -477,11 +479,14 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
     if (!parsed) return
     setImporting(true)
 
+    const shipmentUpdates = paymentsOnly ? [] : parsed.shipmentUpdates
+    const shipmentCreates = paymentsOnly ? [] : parsed.shipmentCreates
+
     let updated = 0
     const updateErrors = []
     const CHUNK = 10
-    for (let i = 0; i < parsed.shipmentUpdates.length; i += CHUNK) {
-      const chunk = parsed.shipmentUpdates.slice(i, i + CHUNK)
+    for (let i = 0; i < shipmentUpdates.length; i += CHUNK) {
+      const chunk = shipmentUpdates.slice(i, i + CHUNK)
       const results = await Promise.all(chunk.map(r =>
         supabase.from('shipments').update({
           net_rate:                  r.net_rate,
@@ -500,8 +505,8 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
 
     let created = 0
     const createErrors = []
-    if (parsed.shipmentCreates.length > 0) {
-      const createPayload = parsed.shipmentCreates.map(r => ({
+    if (shipmentCreates.length > 0) {
+      const createPayload = shipmentCreates.map(r => ({
         flight_date:                r.flight_date,
         awb_number:                 r.awb_number,
         airline_id:                 r.airline_id,
@@ -557,6 +562,7 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
     const adjustmentErrors = []
     const adjPayload = parsed.needsClassification
       .map(r => ({ r, cls: classifications[r.rowNum] ?? { type: 'skip', amount: r.amount } }))
+      .filter(() => !paymentsOnly)
       .filter(({ cls }) => cls.type === 'credit' || cls.type === 'debit')
       .map(({ r, cls }) => ({
         client_id:   clientId,
@@ -585,8 +591,10 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
   }
 
   const classifyCount = parsed
-    ? parsed.needsClassification.filter((r) => (classifications[r.rowNum]?.type ?? 'skip') !== 'skip').length
+    ? (paymentsOnly ? 0 : parsed.needsClassification.filter((r) => (classifications[r.rowNum]?.type ?? 'skip') !== 'skip').length)
     : 0
+  const shipmentUpdates = parsed && !paymentsOnly ? parsed.shipmentUpdates : []
+  const shipmentCreates = parsed && !paymentsOnly ? parsed.shipmentCreates : []
 
   return (
     <Modal title={`Import Ledger Sheet — ${clientName}`} onClose={onClose} size="xl">
@@ -626,13 +634,26 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
 
       {step === 'preview' && parsed && (
         <div className="space-y-4">
+          <div className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${paymentsOnly ? 'border-blue-200 bg-blue-50' : 'border-gray-200 bg-gray-50'}`}>
+            <div className="text-xs text-gray-600">
+              <span className="font-semibold text-gray-700">Import mode:</span>{' '}
+              {paymentsOnly ? 'Only payment rows will be imported. All shipments and adjustments will be skipped.' : 'Shipments, payments, and selected adjustments will be imported.'}
+            </div>
+            <Button size="sm" variant={paymentsOnly ? 'primary' : 'secondary'} onClick={() => {
+              setPaymentsOnly((current) => !current)
+              setClassifications(Object.fromEntries(parsed.needsClassification.map(r => [r.rowNum, { type: 'skip', amount: r.amount }])))
+            }}>
+              {paymentsOnly ? 'Include shipments' : 'Skip all shipments'}
+            </Button>
+          </div>
+
           <div className="grid grid-cols-4 gap-3">
             <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-              <p className="text-sm font-semibold text-green-800">{parsed.shipmentUpdates.length} rate updates</p>
+              <p className="text-sm font-semibold text-green-800">{shipmentUpdates.length} rate updates</p>
               <p className="text-xs text-green-600">Matched existing shipments</p>
             </div>
             <div className="bg-teal-50 border border-teal-200 rounded-lg p-3">
-              <p className="text-sm font-semibold text-teal-800">{parsed.shipmentCreates.length} new shipments</p>
+              <p className="text-sm font-semibold text-teal-800">{shipmentCreates.length} new shipments</p>
               <p className="text-xs text-teal-600">Not in Master Log — will be created</p>
             </div>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
@@ -709,6 +730,7 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
                               type="number" step="0.01"
                               className="w-24 border border-gray-300 rounded px-1.5 py-0.5 text-right text-xs focus:outline-none focus:ring-1 focus:ring-accent"
                               value={cls.amount}
+                              disabled={paymentsOnly}
                               onChange={(e) => setClassifications((c) => ({ ...c, [r.rowNum]: { ...cls, amount: e.target.value } }))}
                             />
                           </td>
@@ -716,6 +738,7 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
                             <select
                               className="border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-accent"
                               value={cls.type}
+                              disabled={paymentsOnly}
                               onChange={(e) => setClassifications((c) => ({ ...c, [r.rowNum]: { ...cls, type: e.target.value } }))}
                             >
                               <option value="skip">Skip</option>
@@ -750,7 +773,7 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {(showAll ? parsed.shipmentUpdates : parsed.shipmentUpdates.slice(0, 30)).map((r, i) => (
+                  {(showAll ? shipmentUpdates : shipmentUpdates.slice(0, 30)).map((r, i) => (
                     <tr key={`u-${i}`} className="hover:bg-gray-50">
                       <td className="px-3 py-1.5 whitespace-nowrap text-gray-700">{r.date}</td>
                       <td className="px-3 py-1.5"><span className="px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">Rate update</span></td>
@@ -758,7 +781,7 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
                       <td className="px-3 py-1.5 text-right font-mono">{r.expectedTotal.toLocaleString()}</td>
                     </tr>
                   ))}
-                  {(showAll ? parsed.shipmentCreates : parsed.shipmentCreates.slice(0, 30)).map((r, i) => (
+                  {(showAll ? shipmentCreates : shipmentCreates.slice(0, 30)).map((r, i) => (
                     <tr key={`c-${i}`} className="hover:bg-gray-50 bg-teal-50/30">
                       <td className="px-3 py-1.5 whitespace-nowrap text-gray-700">{r.flight_date}</td>
                       <td className="px-3 py-1.5"><span className="px-1.5 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-700">New shipment</span></td>
@@ -786,9 +809,9 @@ export function LedgerImportModal({ clientId, clientName, onImported, onClose })
             </button>
             <div className="flex gap-3">
               <Button variant="secondary" onClick={onClose}>Cancel</Button>
-              <Button onClick={handleImport} disabled={importing || (parsed.shipmentUpdates.length === 0 && parsed.shipmentCreates.length === 0 && parsed.payments.length === 0 && classifyCount === 0)}>
+              <Button onClick={handleImport} disabled={importing || (shipmentUpdates.length === 0 && shipmentCreates.length === 0 && parsed.payments.length === 0 && classifyCount === 0)}>
                 {importing && <Spinner size="sm" />}
-                Import {parsed.shipmentUpdates.length} updates + {parsed.shipmentCreates.length} new + {parsed.payments.length} payments{classifyCount > 0 ? ` + ${classifyCount} credit/debit` : ''}
+                Import {shipmentUpdates.length} updates + {shipmentCreates.length} new + {parsed.payments.length} payments{classifyCount > 0 ? ` + ${classifyCount} credit/debit` : ''}
               </Button>
             </div>
           </div>
