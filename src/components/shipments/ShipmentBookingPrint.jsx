@@ -318,7 +318,7 @@ function cargoLine(shipment, details = {}) {
 }
 
 /* A continuous rule — underscores render as a broken/half line in WhatsApp. */
-const DIVIDER = '━━━━━━━━━━━━━━━━━━━━━━━'
+const DIVIDER = '  ━━━━━━━━━━━━━━━━━━━     '
 
 /* ==================================================================
    WHATSAPP MESSAGE
