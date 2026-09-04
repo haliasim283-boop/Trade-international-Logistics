@@ -192,15 +192,12 @@ export function ShipmentFormModal({
 
   function handleOriginChange(raw) {
     const origin = raw.toUpperCase().slice(0, 3)
-    const agent = clearingAgents.find((a) => a.origin_code === origin)
-    const cc = agent?.per_shipment_charge ?? 0
-    const idc = origin === 'PEW' ? r2(cc * (idcTaxRate / 100)) : 0
     setForm((p) => ({
       ...p,
       origin,
-      clearing_agent_id: agent?.id ?? '',
-      clearing_charges: cc,
-      idc_tax: idc,
+      clearing_agent_id: '',
+      clearing_charges: 0,
+      idc_tax: 0,
     }))
   }
 
