@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Download, Plus, Trash2, AlertTriangle, Pencil, Upload } from 'lucide-react'
+import { Download, Plus, Trash2, Pencil, Upload } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { Card, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -125,7 +125,40 @@ function buildEntries(shipments, payments, adjustments, opening) {
 
 // ── CSV export ────────────────────────────────────────────────────────────────
 
-function exportCSV(entries, clientName) {
+function exportCSV(entries, clientName, isSalesReport = false, periodLabel = '', awbFixedFee = 0) {
+  if (isSalesReport) {
+    const header = 'Date,AWB No.,ORG,DST,PCS,Weight (kg),Net Rate,Clearing Chrgs,Other Chrgs,Form E,AWB Fee,Receivable (PKR),Cumulative Total (PKR)'
+    const lines = entries.map((e) => [
+      fmtDate(e.date),
+      e.awb_number ?? '',
+      e.origin ?? '',
+      e.destination ?? '',
+      e.pieces ?? '',
+      e.weight > 0 ? Number(e.weight).toFixed(3) : '',
+      e.net_rate > 0 ? e.net_rate : '',
+      e.clearing > 0 ? e.clearing : '',
+      e.other > 0 ? e.other : '',
+      e.form_e > 0 ? e.form_e : '',
+      awbFixedFee > 0 ? awbFixedFee : '',
+      e.receivable > 0 ? e.receivable : 0,
+      e.salesTotal > 0 ? e.salesTotal : (e.receivable || 0),
+    ].map((v) => `"${v}"`).join(','))
+
+    const totalPcs = entries.reduce((s, e) => s + (Number(e.pieces) || 0), 0)
+    const totalWt  = entries.reduce((s, e) => s + (Number(e.weight) || 0), 0)
+    const totalRec = entries.reduce((s, e) => s + (Number(e.receivable) || 0), 0)
+    const summaryRow = `"TOTAL","","","","${totalPcs}","${totalWt.toFixed(3)}","","","","","","${totalRec.toFixed(2)}","${totalRec.toFixed(2)}"`
+
+    const blob = new Blob([[header, ...lines, summaryRow].join('\n')], { type: 'text/csv' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    const safePeriod = (periodLabel || new Date().toISOString().slice(0, 10)).replace(/[^\w-]/g, '_')
+    a.download = `sales-report-${clientName.replace(/\s+/g, '-')}-${safePeriod}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    return
+  }
+
   const header = 'Date,AWB No.,ORG,DST,PCS,Weight,Net Rate,Clearing Chrgs,Other Chrgs,Form E,Receivable,Received,Balance,Description'
   const lines = entries.map((e) => [
     fmtDate(e.date),
@@ -155,8 +188,10 @@ function exportCSV(entries, clientName) {
 
 // ── PDF statement export (same layout/colors as Print Statement) ────────────
 
-function statementFileName(clientName) {
-  return `Statement-${clientName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.pdf`
+function statementFileName(clientName, isSalesReport = false, periodLabel = '') {
+  const prefix = isSalesReport ? 'SalesReport' : 'Statement'
+  const safePeriod = periodLabel ? periodLabel.replace(/[^\w-]/g, '_') : new Date().toISOString().slice(0, 10)
+  return `${prefix}-${clientName.replace(/\s+/g, '-')}-${safePeriod}.pdf`
 }
 
 async function buildStatementPdf(entries, client, summary, dateLabel, awbFixedFee) {
@@ -280,7 +315,6 @@ export default function Ledgers() {
   const [selClientId, setSelClientId] = useState('')
   const [client,      setClient]      = useState(null)
   const [entries,     setEntries]     = useState([])
-  const [overdueDays, setOverdueDays] = useState(30)
   const [awbFixedFee, setAwbFixedFee] = useState(0)
 
   const [loading,  setLoading]  = useState(false)
@@ -301,6 +335,7 @@ export default function Ledgers() {
   const [filterFrom, setFilterFrom] = useState('')
   const [filterTo,   setFilterTo]   = useState('')
   const [selPeriod,  setSelPeriod]  = useState('')
+  const [viewMode,   setViewMode]   = useState('statement')
 
   // ── Load client list + settings ──────────────────────────────────────────
 
@@ -308,10 +343,9 @@ export default function Ledgers() {
     if (!supabase) return
     Promise.all([
       supabase.from('clients').select('id, name, contact_person, city').eq('is_active', true).order('name'),
-      supabase.from('company_settings').select('invoice_overdue_days, default_awb_fixed_fee').eq('id', 1).single(),
+      supabase.from('company_settings').select('default_awb_fixed_fee').eq('id', 1).single(),
     ]).then(([{ data: cData }, { data: settData }]) => {
       setAllClients(cData ?? [])
-      setOverdueDays(settData?.invoice_overdue_days ?? 30)
       setAwbFixedFee(Number(settData?.default_awb_fixed_fee ?? 0))
     })
   }, [])
@@ -382,8 +416,34 @@ export default function Ledgers() {
     else { setEntries([]); setClient(null) }
   }, [selClientId, loadLedger])
 
-  // ── Summary (always from ALL entries, not filtered) ───────────────────────
+  // ── Period object ─────────────────────────────────────────────────────────
+  const selPeriodObj = useMemo(() => PERIODS.find((p) => p.key === selPeriod), [selPeriod])
 
+  // ── Shipments strictly within the selected date range / fortnight ──────────
+  const periodShipments = useMemo(() => {
+    return entries.filter((e) => {
+      if (e.type !== 'shipment') return false
+      if (filterFrom && e.date < filterFrom) return false
+      if (filterTo && e.date > filterTo) return false
+      return true
+    })
+  }, [entries, filterFrom, filterTo])
+
+  // ── Sales report summary (for the selected period / fortnight only) ────────
+  const salesSummary = useMemo(() => {
+    const totalReceivable = periodShipments.reduce((s, e) => s + (e.receivable || 0), 0)
+    const totalWeight     = periodShipments.reduce((s, e) => s + (Number(e.weight) || 0), 0)
+    const totalPieces     = periodShipments.reduce((s, e) => s + (Number(e.pieces) || 0), 0)
+    return {
+      totalReceivable: Math.round(totalReceivable * 100) / 100,
+      totalWeight:     Math.round(totalWeight * 1000) / 1000,
+      totalPieces,
+      shipmentCount:   periodShipments.length,
+      isSalesReport:   true,
+    }
+  }, [periodShipments])
+
+  // ── Statement summary (always from ALL entries, not filtered) ─────────────
   const summary = useMemo(() => {
     const totalReceivable = entries.reduce((s, e) => s + e.receivable, 0)
     const totalReceived   = entries.reduce((s, e) => s + e.received, 0)
@@ -391,12 +451,23 @@ export default function Ledgers() {
       totalReceivable: Math.round(totalReceivable * 100) / 100,
       totalReceived:   Math.round(totalReceived   * 100) / 100,
       balance:         Math.round((totalReceivable - totalReceived) * 100) / 100,
+      isSalesReport:   false,
     }
   }, [entries])
 
-  // ── Display entries: filtered + carry-forward row ─────────────────────────
-
+  // ── Display entries: depends on viewMode ('sales' vs 'statement') ──────────
   const displayEntries = useMemo(() => {
+    if (viewMode === 'sales') {
+      let cumSales = 0
+      return periodShipments.map((s) => {
+        cumSales = Math.round((cumSales + s.receivable) * 100) / 100
+        return {
+          ...s,
+          salesTotal: cumSales,
+        }
+      })
+    }
+
     if (!filterFrom && !filterTo) return entries
 
     let carryBalance = 0
@@ -430,19 +501,9 @@ export default function Ledgers() {
       ]
     }
     return inRange
-  }, [entries, filterFrom, filterTo])
+  }, [entries, filterFrom, filterTo, viewMode, periodShipments])
 
-  // ── Overdue check ─────────────────────────────────────────────────────────
 
-  const isOverdue = useMemo(() => {
-    if (!client || summary.balance <= 0) return false
-    if (entries.length === 0) return false
-    const lastShipment = [...entries].reverse().find((e) => e.type === 'shipment')
-    if (!lastShipment) return false
-    const [y, m, d] = lastShipment.date.split('-').map(Number)
-    const dueDate = new Date(y, m - 1, d + overdueDays)
-    return dueDate < new Date()
-  }, [entries, client, summary.balance, overdueDays])
 
   // ── Add payment ───────────────────────────────────────────────────────────
 
@@ -500,17 +561,21 @@ export default function Ledgers() {
 
   // ── Date label for print ──────────────────────────────────────────────────
 
-  const dateLabel = filterFrom || filterTo
-    ? `${filterFrom ? fmtDate(filterFrom) : 'Start'} — ${filterTo ? fmtDate(filterTo) : 'Today'}`
-    : 'All Dates'
+  const dateLabel = selPeriodObj
+    ? selPeriodObj.label
+    : (filterFrom || filterTo
+        ? `${filterFrom ? fmtDate(filterFrom) : 'Start'} — ${filterTo ? fmtDate(filterTo) : 'Today'}`
+        : 'All Dates')
 
   // ── PDF export / send ──────────────────────────────────────────────────────
 
   async function handleDownloadStatementPDF() {
     setSendBusy(true)
     try {
-      const pdf = await buildStatementPdf(displayEntries, client, summary, dateLabel, awbFixedFee)
-      pdf.save(statementFileName(client.name))
+      const isSales = viewMode === 'sales'
+      const activeSummary = isSales ? salesSummary : summary
+      const pdf = await buildStatementPdf(displayEntries, client, activeSummary, dateLabel, awbFixedFee)
+      pdf.save(statementFileName(client.name, isSales, selPeriodObj?.label))
     } catch (err) {
       alert('Could not generate the PDF: ' + err.message)
     } finally {
@@ -638,10 +703,38 @@ export default function Ledgers() {
       <div className="p-6 space-y-5">
 
         {/* Page header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-navy tracking-tight">Party Ledgers / Statements</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-navy tracking-tight">Party Ledgers / Statements</h1>
             <p className="text-sm text-gray-500 mt-0.5">Running account statements auto-populated from shipments and payments.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="sm:text-sm sm:px-4 sm:py-2"
+              disabled={!client}
+              onClick={() => exportCSV(displayEntries, client?.name ?? 'client', viewMode === 'sales', selPeriodObj?.label, awbFixedFee)}
+            >
+              <Download className="w-4 h-4" />{viewMode === 'sales' ? 'Export Sales CSV' : 'Export CSV'}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="sm:text-sm sm:px-4 sm:py-2"
+              disabled={sendBusy || !client}
+              onClick={handleDownloadStatementPDF}
+            >
+              <Download className="w-4 h-4" />{viewMode === 'sales' ? 'Export Sales PDF' : 'Export PDF'}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="sm:text-sm sm:px-4 sm:py-2"
+              onClick={() => setImportModal(true)}
+            >
+              <Upload className="w-4 h-4" />Import Ledger Sheet
+            </Button>
           </div>
         </div>
 
@@ -653,7 +746,7 @@ export default function Ledgers() {
                 className={INP_F}
                 style={{ minWidth: 240 }}
                 value={selClientId}
-                onChange={(e) => { setSelClientId(e.target.value); setFilterFrom(''); setFilterTo(''); setSelPeriod('') }}
+                onChange={(e) => { setSelClientId(e.target.value); setFilterFrom(''); setFilterTo(''); setSelPeriod(''); setViewMode('statement') }}
               >
                 <option value="">Select a client…</option>
                 {allClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -668,55 +761,64 @@ export default function Ledgers() {
                     onChange={(e) => {
                       const key = e.target.value
                       setSelPeriod(key)
-                      if (!key) { setFilterFrom(''); setFilterTo(''); return }
+                      if (!key) { setFilterFrom(''); setFilterTo(''); setViewMode('statement'); return }
                       const p = PERIODS.find((x) => x.key === key)
-                      if (p) { setFilterFrom(p.start); setFilterTo(p.end) }
+                      if (p) {
+                        setFilterFrom(p.start)
+                        setFilterTo(p.end)
+                        setViewMode('sales')
+                      }
                     }}
                   >
-                    <option value="">Fortnight…</option>
+                    <option value="">Fortnight (Sales Report)…</option>
                     {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
                   </select>
 
-                  <input
-                    type="date"
-                    className={INP_F}
-                    value={filterFrom}
-                    onChange={(e) => { setFilterFrom(e.target.value); setSelPeriod('') }}
-                    title="From date"
-                  />
-                  <input
-                    type="date"
-                    className={INP_F}
-                    value={filterTo}
-                    onChange={(e) => { setFilterTo(e.target.value); setSelPeriod('') }}
-                    title="To date"
-                  />
+                  {/* View Mode Toggle */}
+                  <div className="inline-flex rounded-md shadow-sm border border-gray-300 overflow-hidden bg-white">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('sales')}
+                      className={`px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                        viewMode === 'sales'
+                          ? 'bg-navy text-white'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                      title="Fortnight Sales Report: Displays only shipments and fortnight sales totals"
+                    >
+                      <span>Sales Report</span>
+                      {selPeriod && (
+                        <span className={`rounded-full px-1.5 py-0.2 text-[10px] ${
+                          viewMode === 'sales' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'
+                        }`}>
+                          {periodShipments.length}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('statement')}
+                      className={`px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 transition-colors border-l border-gray-300 ${
+                        viewMode === 'statement'
+                          ? 'bg-navy text-white'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                      title="Full Statement: Displays running account ledger with payments and balance"
+                    >
+                      <span>Full Statement</span>
+                    </button>
+                  </div>
+
                   {(filterFrom || filterTo) && (
                     <button
-                      onClick={() => { setFilterFrom(''); setFilterTo(''); setSelPeriod('') }}
+                      onClick={() => { setFilterFrom(''); setFilterTo(''); setSelPeriod(''); setViewMode('statement') }}
                       className="text-xs text-accent hover:underline whitespace-nowrap"
                     >
-                      Clear dates
+                      Clear period
                     </button>
                   )}
 
                   <div className="ml-auto flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => exportCSV(displayEntries, client?.name ?? 'client')}
-                    >
-                      <Download className="w-4 h-4" />Export CSV
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={sendBusy || !client}
-                      onClick={handleDownloadStatementPDF}
-                    >
-                      <Download className="w-4 h-4" />Export PDF
-                    </Button>
-
                     <Button size="sm" variant="success" onClick={() => setPaymentModal(true)}>
                       <Plus className="w-4 h-4" />Record Payment
                     </Button>
@@ -725,9 +827,6 @@ export default function Ledgers() {
                     </Button>
                     <Button size="sm" variant="danger" onClick={() => setAdjustmentModal('debit')}>
                       <Plus className="w-4 h-4" />Add Debit
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setImportModal(true)}>
-                      <Upload className="w-4 h-4" />Import Ledger Sheet
                     </Button>
                   </div>
                 </>
@@ -738,37 +837,60 @@ export default function Ledgers() {
 
         {/* Summary bar — only if client selected */}
         {client && !loading && (
-          <div className={`rounded-lg border px-5 py-3 flex flex-wrap gap-6 items-center ${summary.balance > 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+          <div className="bg-white border border-gray-200 rounded-lg px-5 py-3.5 flex flex-wrap gap-6 items-center shadow-sm">
             {/* Client info */}
             <div className="flex-1 min-w-0">
-              <div className="font-bold text-navy text-sm truncate">
-                AC STATEMENT — {client.name}
-                {client.contact_person ? ` / ${client.contact_person}` : ''}
+              <div className="font-bold text-navy text-sm truncate flex items-center gap-2">
+                <span>{viewMode === 'sales' ? 'FORTNIGHT SALES REPORT — ' : 'AC STATEMENT — '} {client.name}</span>
+                {viewMode === 'sales' && (
+                  <span className="bg-blue-100 text-blue-800 text-[11px] font-semibold px-2 py-0.5 rounded border border-blue-200">
+                    Sales Report
+                  </span>
+                )}
               </div>
-              <div className="text-xs text-gray-500 mt-0.5">{client.city}, Pakistan</div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                {viewMode === 'sales'
+                  ? `${selPeriodObj?.label || dateLabel} • ${salesSummary.shipmentCount} Shipment${salesSummary.shipmentCount !== 1 ? 's' : ''}`
+                  : `${client.city ? `${client.city}, Pakistan` : 'Pakistan'}${client.contact_person ? ` • ${client.contact_person}` : ''}`}
+              </div>
             </div>
 
-            {/* Overdue flag */}
-            {isOverdue && (
-              <div className="flex items-center gap-1.5 text-danger text-xs font-medium">
-                <AlertTriangle className="w-4 h-4" />
-                Overdue ({overdueDays}+ days)
-              </div>
-            )}
-
             {/* Totals */}
-            {[
-              ['Total Receivable', summary.totalReceivable, 'text-gray-700'],
-              ['Total Received',   summary.totalReceived,   'text-success'],
-              ['Outstanding Balance', summary.balance,      summary.balance > 0 ? 'text-danger' : 'text-success'],
-            ].map(([lbl, val, cls]) => (
-              <div key={lbl} className="text-right">
-                <div className="text-xs text-gray-500 uppercase tracking-wide">{lbl}</div>
-                <div className={`font-mono font-bold text-base ${cls}`}>
-                  PKR {fmt(val)}
+            {viewMode === 'sales' ? (
+              <>
+                <div className="text-right">
+                  <div className="text-xs text-gray-500 uppercase tracking-wide">Total Shipments</div>
+                  <div className="font-mono font-bold text-base text-navy">
+                    {salesSummary.shipmentCount}
+                  </div>
                 </div>
-              </div>
-            ))}
+                <div className="text-right">
+                  <div className="text-xs text-gray-500 uppercase tracking-wide">Total Weight / Pcs</div>
+                  <div className="font-mono font-bold text-base text-gray-700">
+                    {salesSummary.totalWeight.toFixed(3)} kg <span className="text-xs font-normal text-gray-500">({salesSummary.totalPieces} pcs)</span>
+                  </div>
+                </div>
+                <div className="text-right bg-blue-50/70 border border-blue-100 rounded-md px-3 py-1">
+                  <div className="text-xs text-blue-700 font-semibold uppercase tracking-wide">Fortnight Total Sales</div>
+                  <div className="font-mono font-bold text-lg text-blue-700">
+                    PKR {fmt(salesSummary.totalReceivable)}
+                  </div>
+                </div>
+              </>
+            ) : (
+              [
+                ['Total Receivable', summary.totalReceivable, 'text-gray-700'],
+                ['Total Received',   summary.totalReceived,   'text-success'],
+                ['Outstanding Balance', summary.balance,      summary.balance > 0 ? 'text-danger' : 'text-success'],
+              ].map(([lbl, val, cls]) => (
+                <div key={lbl} className="text-right">
+                  <div className="text-xs text-gray-500 uppercase tracking-wide">{lbl}</div>
+                  <div className={`font-mono font-bold text-base ${cls}`}>
+                    PKR {fmt(val)}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         )}
 
@@ -787,29 +909,52 @@ export default function Ledgers() {
             <p className="text-base font-medium">No ledger entries for this client</p>
             <p className="text-sm mt-1">Shipments linked to this client will appear here automatically.</p>
           </div>
+        ) : (viewMode === 'sales' && displayEntries.length === 0) ? (
+          <div className="text-center py-16 text-gray-400 bg-white border border-gray-200 rounded-lg shadow-sm">
+            <p className="text-base font-medium text-navy">No shipments found for this fortnight</p>
+            <p className="text-sm mt-1 text-gray-500">There are no shipments recorded for {client.name} in {selPeriodObj?.label || dateLabel}.</p>
+          </div>
         ) : (
           <Card>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ minWidth: 1260, width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ backgroundColor: '#1a2744' }}>
-                    {[
-                      { label: 'Date',         align: 'left'  },
-                      { label: 'AWB No.',      align: 'left'  },
-                      { label: 'ORG',          align: 'left'  },
-                      { label: 'DST',          align: 'left'  },
-                      { label: 'PCS',          align: 'right' },
-                      { label: 'Weight',       align: 'right' },
-                      { label: 'Net Rate',     align: 'right' },
-                      { label: 'Clrg Chrgs',   align: 'right' },
-                      { label: 'Other Chrgs',  align: 'right' },
-                      { label: 'Form E',       align: 'right' },
-                      { label: 'AWB Fee',      align: 'right' },
-                      { label: 'Receivable',   align: 'right' },
-                      { label: 'Received',     align: 'right' },
-                      { label: 'Balance',      align: 'right' },
-                      { label: '',             align: 'right' }, // actions
-                    ].map(({ label, align }) => (
+                    {(viewMode === 'sales'
+                      ? [
+                          { label: 'Date',             align: 'left'  },
+                          { label: 'AWB No.',          align: 'left'  },
+                          { label: 'ORG',              align: 'left'  },
+                          { label: 'DST',              align: 'left'  },
+                          { label: 'PCS',              align: 'right' },
+                          { label: 'Weight (kg)',      align: 'right' },
+                          { label: 'Net Rate',         align: 'right' },
+                          { label: 'Clrg Chrgs',       align: 'right' },
+                          { label: 'Other Chrgs',      align: 'right' },
+                          { label: 'Form E',           align: 'right' },
+                          { label: 'AWB Fee',          align: 'right' },
+                          { label: 'Receivable (PKR)', align: 'right' },
+                          { label: 'Cumulative Total', align: 'right' },
+                          { label: '',                 align: 'right' }, // actions
+                        ]
+                      : [
+                          { label: 'Date',         align: 'left'  },
+                          { label: 'AWB No.',      align: 'left'  },
+                          { label: 'ORG',          align: 'left'  },
+                          { label: 'DST',          align: 'left'  },
+                          { label: 'PCS',          align: 'right' },
+                          { label: 'Weight',       align: 'right' },
+                          { label: 'Net Rate',     align: 'right' },
+                          { label: 'Clrg Chrgs',   align: 'right' },
+                          { label: 'Other Chrgs',  align: 'right' },
+                          { label: 'Form E',       align: 'right' },
+                          { label: 'AWB Fee',      align: 'right' },
+                          { label: 'Receivable',   align: 'right' },
+                          { label: 'Received',     align: 'right' },
+                          { label: 'Balance',      align: 'right' },
+                          { label: '',             align: 'right' }, // actions
+                        ]
+                    ).map(({ label, align }) => (
                       <th
                         key={label}
                         style={{
@@ -951,10 +1096,18 @@ export default function Ledgers() {
                         <td style={tdR}>{e.form_e > 0 ? fmt(e.form_e) : ''}</td>
                         <td style={tdR}>{fmt(awbFixedFee)}</td>
                         <td style={{ ...tdR, fontWeight: 600 }}>{fmt(e.receivable)}</td>
-                        <td style={tdS} /> {/* RECEIVED blank */}
-                        <td style={{ ...tdR, fontWeight: 600, color: e.balance > 0 ? '#dc2626' : '#16a34a' }}>
-                          {fmt(e.balance)}
-                        </td>
+                        {viewMode === 'sales' ? (
+                          <td style={{ ...tdR, fontWeight: 600, color: '#1a2744' }}>
+                            {fmt(e.salesTotal || e.receivable)}
+                          </td>
+                        ) : (
+                          <>
+                            <td style={tdS} /> {/* RECEIVED blank */}
+                            <td style={{ ...tdR, fontWeight: 600, color: e.balance > 0 ? '#dc2626' : '#16a34a' }}>
+                              {fmt(e.balance)}
+                            </td>
+                          </>
+                        )}
                         <td style={{ ...tdS, textAlign: 'right' }} /> {/* no actions for shipments */}
                       </tr>
                     )
@@ -965,13 +1118,26 @@ export default function Ledgers() {
 
             {/* Footer totals */}
             <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-sm">
-              <span className="text-gray-500">
-                {displayEntries.length} entr{displayEntries.length !== 1 ? 'ies' : 'y'}
-                {(filterFrom || filterTo) ? ' (filtered)' : ''}
-              </span>
-              <span className={`font-mono font-bold text-base ${summary.balance > 0 ? 'text-danger' : 'text-success'}`}>
-                Balance: PKR {fmt(summary.balance)}
-              </span>
+              {viewMode === 'sales' ? (
+                <>
+                  <span className="text-gray-600 font-medium">
+                    Total: <strong className="text-navy">{salesSummary.shipmentCount}</strong> shipment{salesSummary.shipmentCount !== 1 ? 's' : ''} &bull; <strong className="text-navy">{salesSummary.totalPieces}</strong> pcs &bull; <strong className="text-navy">{salesSummary.totalWeight.toFixed(3)}</strong> kg
+                  </span>
+                  <span className="font-mono font-bold text-base text-navy">
+                    Fortnight Sales Total: PKR {fmt(salesSummary.totalReceivable)}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-gray-500">
+                    {displayEntries.length} entr{displayEntries.length !== 1 ? 'ies' : 'y'}
+                    {(filterFrom || filterTo) ? ' (filtered)' : ''}
+                  </span>
+                  <span className={`font-mono font-bold text-base ${summary.balance > 0 ? 'text-danger' : 'text-success'}`}>
+                    Balance: PKR {fmt(summary.balance)}
+                  </span>
+                </>
+              )}
             </div>
           </Card>
         )}

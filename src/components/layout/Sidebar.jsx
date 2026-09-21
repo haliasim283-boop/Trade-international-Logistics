@@ -28,8 +28,8 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
 
       <aside
         className={[
-          'fixed left-0 top-0 bottom-0 z-40 flex flex-col bg-navy text-white',
-          'transition-transform duration-200 ease-in-out w-64',
+          'fixed left-0 top-0 bottom-0 z-40 flex flex-col bg-navy text-white overflow-hidden',
+          'transition-all duration-200 ease-in-out w-64',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
           'md:translate-x-0',
           collapsed ? 'md:w-16' : 'md:w-64',
@@ -60,7 +60,10 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
         </div>
 
         {/* Nav items */}
-        <nav className="flex-1 overflow-y-auto py-3 scrollbar-thin">
+        <nav className={[
+          'flex-1 py-3 scrollbar-thin',
+          collapsed ? 'overflow-hidden' : 'overflow-y-auto',
+        ].join(' ')}>
           {visibleItems.map(({ icon: Icon, label, path }) => (
             <NavLink
               key={path}
@@ -94,7 +97,10 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
 
         {/* Collapse toggle (desktop only) */}
         <button
-          onClick={onToggle}
+          onClick={() => {
+            onToggle()
+            onMobileClose()
+          }}
           className="hidden md:flex items-center justify-center h-12 border-t border-white/10 text-blue-300 hover:text-white hover:bg-white/10 transition-colors"
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >

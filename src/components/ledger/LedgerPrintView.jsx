@@ -16,6 +16,8 @@ function fmtDate(s) {
 // ── HTML builder (new print window) ──────────────────────────────────────────
 
 export function buildPrintHTML(entries, client, summary, dateLabel, awbFixedFee = 0) {
+  const isSales = summary?.isSalesReport || false
+
   const rows = entries.map((e) => {
     if (e.type === 'opening' || e.type === 'carry-forward') {
       return `
@@ -62,7 +64,7 @@ export function buildPrintHTML(entries, client, summary, dateLabel, awbFixedFee 
         <td class="num">${fmt(awbFixedFee)}</td>
         <td class="num bold">${fmt(e.receivable)}</td>
         <td></td>
-        <td class="num bold ${e.balance > 0 ? 'danger' : 'ok'}">${fmt(e.balance)}</td>
+        <td class="num bold ${!isSales && e.balance > 0 ? 'danger' : !isSales ? 'ok' : ''}">${fmt(isSales ? (e.salesTotal || e.receivable) : e.balance)}</td>
       </tr>`
   }).join('')
 
@@ -72,7 +74,7 @@ export function buildPrintHTML(entries, client, summary, dateLabel, awbFixedFee 
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Statement — ${esc(client.name)}</title>
+  <title>${isSales ? 'Sales Report' : 'Statement'} — ${esc(client.name)}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: Arial, Helvetica, sans-serif; font-size: 10.5px; color: #1f2937; background: white; -webkit-font-smoothing: antialiased; }
@@ -123,27 +125,46 @@ export function buildPrintHTML(entries, client, summary, dateLabel, awbFixedFee 
       </div>
     </div>
     <div class="summary-box">
-      <div class="summary-title">Account Statement</div>
+      <div class="summary-title">${isSales ? 'Fortnight Sales Report' : 'Account Statement'}</div>
       <div class="summary-grid">
-        <div class="sum-item">
-          <div class="sum-lbl">Total Receivable</div>
-          <div class="sum-val">PKR ${fmt(summary.totalReceivable)}</div>
-        </div>
-        <div class="sum-item">
-          <div class="sum-lbl">Total Received</div>
-          <div class="sum-val">PKR ${fmt(summary.totalReceived)}</div>
-        </div>
-        <div class="sum-item">
-          <div class="sum-lbl">Balance</div>
-          <div class="sum-val" style="color:${balanceColor}">PKR ${fmt(summary.balance)}</div>
-        </div>
+        ${isSales ? `
+          <div class="sum-item">
+            <div class="sum-lbl">Shipments</div>
+            <div class="sum-val">${summary.shipmentCount ?? entries.length}</div>
+          </div>
+          <div class="sum-item">
+            <div class="sum-lbl">Total Weight</div>
+            <div class="sum-val">${Number(summary.totalWeight || 0).toFixed(3)} KG</div>
+          </div>
+          <div class="sum-item">
+            <div class="sum-lbl">Total Pieces</div>
+            <div class="sum-val">${summary.totalPieces || 0} PCS</div>
+          </div>
+          <div class="sum-item">
+            <div class="sum-lbl">Fortnight Sales Total</div>
+            <div class="sum-val" style="color:#60a5fa">PKR ${fmt(summary.totalReceivable)}</div>
+          </div>
+        ` : `
+          <div class="sum-item">
+            <div class="sum-lbl">Total Receivable</div>
+            <div class="sum-val">PKR ${fmt(summary.totalReceivable)}</div>
+          </div>
+          <div class="sum-item">
+            <div class="sum-lbl">Total Received</div>
+            <div class="sum-val">PKR ${fmt(summary.totalReceived)}</div>
+          </div>
+          <div class="sum-item">
+            <div class="sum-lbl">Balance</div>
+            <div class="sum-val" style="color:${balanceColor}">PKR ${fmt(summary.balance)}</div>
+          </div>
+        `}
       </div>
     </div>
   </div>
 
   <div class="client-bar">
     <div class="client-title">
-      AC STATEMENT FOR ${esc(client.name)}${client.contact_person ? ' / ' + esc(client.contact_person) : ''}, ${esc(client.city)}, PAKISTAN
+      ${isSales ? 'FORTNIGHT SALES REPORT FOR' : 'AC STATEMENT FOR'} ${esc(client.name)}${client.contact_person ? ' / ' + esc(client.contact_person) : ''}, ${esc(client.city || 'PAKISTAN')}, PAKISTAN
     </div>
     <div class="date-range">${dateLabel}</div>
   </div>
@@ -179,13 +200,25 @@ export function buildPrintHTML(entries, client, summary, dateLabel, awbFixedFee 
         <th class="num">Form E</th>
         <th class="num">AWB Fee</th>
         <th class="num">Receivable</th>
-        <th class="num">Received</th>
-        <th class="num">Balance</th>
+        <th class="num">${isSales ? '' : 'Received'}</th>
+        <th class="num">${isSales ? 'Cumulative Total' : 'Balance'}</th>
       </tr>
     </thead>
     <tbody>
       ${rows}
     </tbody>
+    ${isSales ? `
+    <tfoot>
+      <tr style="background:#1a2744;color:white;font-weight:bold;">
+        <td colspan="4" style="color:white;padding:7px 6px;font-size:8.5px;text-transform:uppercase;">Fortnight Total</td>
+        <td class="num" style="color:white;padding:7px 6px;">${summary.totalPieces ?? ''}</td>
+        <td class="num" style="color:white;padding:7px 6px;">${Number(summary.totalWeight || 0).toFixed(3)}</td>
+        <td colspan="5"></td>
+        <td class="num" style="color:white;padding:7px 6px;font-size:10px;">${fmt(summary.totalReceivable)}</td>
+        <td></td>
+        <td class="num" style="color:#93c5fa;padding:7px 6px;font-size:10px;">PKR ${fmt(summary.totalReceivable)}</td>
+      </tr>
+    </tfoot>` : ''}
   </table>
 </body>
 </html>`
@@ -204,6 +237,7 @@ export function LedgerPrintView({ entries, client, summary, dateLabel, onClose }
 
   // ── Shared helpers ────────────────────────────────────────────────────────
 
+  const isSales = summary?.isSalesReport || false
   const balanceColor = (b) => b > 0 ? '#dc2626' : b === 0 ? '#16a34a' : '#374151'
   const tdNum = { textAlign: 'right', fontFamily: 'monospace', padding: '6px 8px', whiteSpace: 'nowrap' }
   const tdBase = { padding: '6px 8px', whiteSpace: 'nowrap', borderBottom: '1px solid #f3f4f6' }
@@ -243,21 +277,50 @@ export function LedgerPrintView({ entries, client, summary, dateLabel, onClose }
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 8, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
-              Account Statement
+              {isSales ? 'Fortnight Sales Report' : 'Account Statement'}
             </div>
             <div style={{ display: 'flex', gap: 20 }}>
-              {[
-                ['Total Receivable', summary.totalReceivable],
-                ['Total Received',   summary.totalReceived],
-                ['Balance',          summary.balance],
-              ].map(([lbl, val]) => (
-                <div key={lbl} style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 8, opacity: 0.7, textTransform: 'uppercase' }}>{lbl}</div>
-                  <div style={{ fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace', color: lbl === 'Balance' ? balanceColor(summary.balance) : 'white' }}>
-                    PKR {fmt(val)}
+              {isSales ? (
+                <>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 8, opacity: 0.7, textTransform: 'uppercase' }}>Shipments</div>
+                    <div style={{ fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace', color: 'white' }}>
+                      {summary.shipmentCount ?? entries.length}
+                    </div>
                   </div>
-                </div>
-              ))}
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 8, opacity: 0.7, textTransform: 'uppercase' }}>Total Weight</div>
+                    <div style={{ fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace', color: 'white' }}>
+                      {Number(summary.totalWeight || 0).toFixed(3)} KG
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 8, opacity: 0.7, textTransform: 'uppercase' }}>Total Pieces</div>
+                    <div style={{ fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace', color: 'white' }}>
+                      {summary.totalPieces || 0} PCS
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 8, opacity: 0.7, textTransform: 'uppercase' }}>Fortnight Sales Total</div>
+                    <div style={{ fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace', color: '#60a5fa' }}>
+                      PKR {fmt(summary.totalReceivable)}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                [
+                  ['Total Receivable', summary.totalReceivable],
+                  ['Total Received',   summary.totalReceived],
+                  ['Balance',          summary.balance],
+                ].map(([lbl, val]) => (
+                  <div key={lbl} style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 8, opacity: 0.7, textTransform: 'uppercase' }}>{lbl}</div>
+                    <div style={{ fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace', color: lbl === 'Balance' ? balanceColor(summary.balance) : 'white' }}>
+                      PKR {fmt(val)}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -265,7 +328,7 @@ export function LedgerPrintView({ entries, client, summary, dateLabel, onClose }
         {/* Client bar */}
         <div style={{ background: '#f8fafc', borderBottom: '2px solid #1a2744', padding: '8px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: 10, fontWeight: 'bold', color: '#1a2744', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            AC STATEMENT FOR {client.name}
+            {isSales ? 'FORTNIGHT SALES REPORT FOR ' : 'AC STATEMENT FOR '}{client.name}
             {client.contact_person ? ` / ${client.contact_person}` : ''}
             {client.city ? `, ${client.city}` : ''}, PAKISTAN
           </div>
@@ -277,7 +340,10 @@ export function LedgerPrintView({ entries, client, summary, dateLabel, onClose }
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
             <thead>
               <tr style={{ backgroundColor: '#1a2744' }}>
-                {['Date','AWB No.','ORG','DST','PCS','Weight','Net Rate','Clrg Chrgs','Other Chrgs','Form E','Receivable','Received','Balance'].map((h, i) => (
+                {(isSales
+                  ? ['Date','AWB No.','ORG','DST','PCS','Weight','Net Rate','Clrg Chrgs','Other Chrgs','Form E','Receivable','Cumulative Total']
+                  : ['Date','AWB No.','ORG','DST','PCS','Weight','Net Rate','Clrg Chrgs','Other Chrgs','Form E','Receivable','Received','Balance']
+                ).map((h, i) => (
                   <th key={h} style={{
                     padding: '7px 8px',
                     color: 'white',
@@ -342,12 +408,30 @@ export function LedgerPrintView({ entries, client, summary, dateLabel, onClose }
                     <td style={{ ...tdNum, ...tdBase }}>{e.other > 0 ? fmt(e.other) : ''}</td>
                     <td style={{ ...tdNum, ...tdBase }}>{e.form_e > 0 ? fmt(e.form_e) : ''}</td>
                     <td style={{ ...tdNum, ...tdBase, fontWeight: 600 }}>{fmt(e.receivable)}</td>
-                    <td style={tdBase} /> {/* RECEIVED blank */}
-                    <td style={{ ...tdNum, ...tdBase, fontWeight: 600, color: balanceColor(e.balance) }}>{fmt(e.balance)}</td>
+                    {isSales ? (
+                      <td style={{ ...tdNum, ...tdBase, fontWeight: 600 }}>{fmt(e.salesTotal || e.receivable)}</td>
+                    ) : (
+                      <>
+                        <td style={tdBase} /> {/* RECEIVED blank */}
+                        <td style={{ ...tdNum, ...tdBase, fontWeight: 600, color: balanceColor(e.balance) }}>{fmt(e.balance)}</td>
+                      </>
+                    )}
                   </tr>
                 )
               })}
             </tbody>
+            {isSales && entries.length > 0 && (
+              <tfoot>
+                <tr style={{ backgroundColor: '#1a2744', color: 'white', fontWeight: 'bold' }}>
+                  <td colSpan={4} style={{ padding: '7px 8px', fontSize: 9, textTransform: 'uppercase' }}>Fortnight Total</td>
+                  <td style={{ ...tdNum, color: 'white' }}>{summary.totalPieces ?? ''}</td>
+                  <td style={{ ...tdNum, color: 'white' }}>{Number(summary.totalWeight || 0).toFixed(3)}</td>
+                  <td colSpan={4} />
+                  <td style={{ ...tdNum, color: 'white', fontSize: 11 }}>{fmt(summary.totalReceivable)}</td>
+                  <td style={{ ...tdNum, color: '#93c5fa', fontSize: 11 }}>PKR {fmt(summary.totalReceivable)}</td>
+                </tr>
+              </tfoot>
+            )}
           </table>
 
           {entries.length === 0 && (

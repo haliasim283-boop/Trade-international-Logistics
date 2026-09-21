@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Plus, Download, Pencil, Trash2, FileText, Upload, MessageSquare, ChevronLeft, ChevronRight, Copy, Check } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, CardBody } from '../components/ui/Card'
@@ -33,25 +33,31 @@ function coerceField(field, raw) {
   return raw
 }
 
-// Supabase caps any single request at its project "Max Rows" setting (1000 by
-// default) — fetch in pages until a short page tells us we've got everything.
-async function fetchAllShipments() {
-  const CHUNK = 1000
-  let all = []
-  let from = 0
-  while (true) {
-    const { data, error } = await supabase
-      .from('shipments')
-      .select(SHIPMENT_SELECT)
-      .order('flight_date', { ascending: false })
-      .order('created_at',  { ascending: false })
-      .range(from, from + CHUNK - 1)
-    if (error) return { data: null, error }
-    all = all.concat(data ?? [])
-    if (!data || data.length < CHUNK) break
-    from += CHUNK
-  }
-  return { data: all, error: null }
+// Fetch only the data needed for the current page to avoid loading the whole
+// shipments table when the user opens the master log.
+async function fetchShipmentsPage({ page, search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder = 'desc' }) {
+  const from = (page - 1) * PAGE_SIZE
+  const to = from + PAGE_SIZE - 1
+
+  let query = supabase
+    .from('shipments')
+    .select(SHIPMENT_SELECT, { count: 'exact' })
+    .order('flight_date', { ascending: sortDateOrder === 'asc' })
+    .order('created_at',  { ascending: sortDateOrder === 'asc' })
+    .range(from, to)
+
+  if (filterAirline) query = query.eq('airline_id', filterAirline)
+  if (filterClient) query = query.eq('client_id', filterClient)
+  if (filterStatus) query = query.eq('status', filterStatus)
+  if (filterOrigin) query = query.eq('origin', filterOrigin)
+  if (filterFormE === 'none') query = query.is('form_e_supplier_id', null)
+  else if (filterFormE) query = query.eq('form_e_supplier_id', filterFormE)
+  if (filterFrom) query = query.gte('flight_date', filterFrom)
+  if (filterTo) query = query.lte('flight_date', filterTo)
+  if (search) query = query.ilike('awb_number', `%${search}%`)
+
+  const { data, count, error } = await query
+  return { data: data ?? [], count: count ?? 0, error }
 }
 
 // ── Inline-editable table cell ──────────────────────────────────────────────
@@ -135,14 +141,14 @@ function EditableCell({ value, display, type = 'text', options, onSave, align, s
 
 const STATUS_ROW = {
   'PNDNG':     '',
-  'AP-BLZ':    'bg-amber-50',
-  'BKD':       'bg-blue-50/60',
-  'CNCLD':     'bg-red-50',
-  'NO SHOW':   'bg-orange-50',
-  'OFFLOADED': 'bg-purple-50',
-  'SHPD':      'bg-green-50',
-  'FBL':       'bg-emerald-50',
-  'EMAILED':   'bg-teal-50',
+  'AP-BLZ':    'bg-amber-100/80',
+  'BKD':       'bg-blue-100/80',
+  'CNCLD':     'bg-red-100/80',
+  'NO SHOW':   'bg-orange-100/80',
+  'OFFLOADED': 'bg-purple-100/80',
+  'SHPD':      'bg-green-100/80',
+  'FBL':       'bg-emerald-100/80',
+  'EMAILED':   'bg-teal-100/80',
 }
 
 const STATUS_BADGE = {
@@ -237,6 +243,7 @@ export default function Shipments() {
   const [salesAgents,    setSalesAgents]    = useState([])
   const [idcTaxRate,     setIdcTaxRate]     = useState(0)
   const [fixedUsdRate,   setFixedUsdRate]   = useState(0)
+  const [totalRows,      setTotalRows]      = useState(0)
   const [loading,        setLoading]        = useState(true)
   const [error,          setError]          = useState(null)
   const [saving,         setSaving]         = useState(false)
@@ -263,19 +270,17 @@ export default function Shipments() {
   const [search,        setSearch]        = useState('')
   const [filterAirline, setFilterAirline] = useState('')
   const [filterClient,  setFilterClient]  = useState('')
-  const [filterStatus,  setFilterStatus]  = useState('')
+  const location = useLocation()
+  const [filterStatus,  setFilterStatus]  = useState(location.state?.status ?? '')
   const [filterOrigin,  setFilterOrigin]  = useState('')
   const [filterFormE,   setFilterFormE]   = useState('')   // '' = all, 'none' = no supplier
   const [filterFrom,    setFilterFrom]    = useState('')
   const [filterTo,      setFilterTo]      = useState('')
+  const [sortDateOrder, setSortDateOrder] = useState('desc')
 
   // ── Pagination state ──
   const [page, setPage] = useState(1)
 
-  // ── Bulk action state ──
-  const [selected,    setSelected]    = useState(new Set())
-  const [bulkStatus,  setBulkStatus]  = useState('SHPD')
-  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   // ── Load ────────────────────────────────────────────────────────────────
 
@@ -284,7 +289,7 @@ export default function Shipments() {
     setLoading(true); setError(null)
 
     const [
-      { data: sData, error: sErr },
+      shipmentsPage,
       { data: aData },
       { data: cData },
       { data: caData },
@@ -292,7 +297,18 @@ export default function Shipments() {
       { data: settData },
       { data: saData },
     ] = await Promise.all([
-      fetchAllShipments(),
+      fetchShipmentsPage({
+        page,
+        search,
+        filterAirline,
+        filterClient,
+        filterStatus,
+        filterOrigin,
+        filterFormE,
+        filterFrom,
+        filterTo,
+        sortDateOrder,
+      }),
       supabase.from('airlines').select('*').eq('is_active', true).order('name'),
       supabase.from('clients').select('id, name').eq('is_active', true).order('name'),
       supabase.from('clearing_agents').select('*').eq('is_active', true).order('city'),
@@ -301,9 +317,11 @@ export default function Shipments() {
       supabase.from('sales_agents').select('id, name, commission_pkr_per_kg').eq('is_active', true).order('name'),
     ])
 
-    if (sErr) { setError(sErr.message) }
-    else {
-      setShipments(sData ?? [])
+    if (shipmentsPage.error) {
+      setError(shipmentsPage.error.message)
+    } else {
+      setShipments(shipmentsPage.data ?? [])
+      setTotalRows(shipmentsPage.count ?? 0)
       setAirlines(aData ?? [])
       setClients(cData ?? [])
       setClearingAgents(caData ?? [])
@@ -325,40 +343,50 @@ export default function Shipments() {
       }
     }
     setLoading(false)
-  }, [])
+  }, [page, search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder])
 
   useEffect(() => { loadAll() }, [loadAll])
 
   // ── Filtered list ────────────────────────────────────────────────────────
 
-  const filtered = useMemo(() => shipments.filter((s) => {
-    if (search) {
-      const q = search.toLowerCase()
-      if (
-        !s.awb_number?.toLowerCase().includes(q) &&
-        !s.clients?.name?.toLowerCase().includes(q)
-      ) return false
-    }
-    if (filterAirline && s.airline_id !== filterAirline) return false
-    if (filterClient  && s.client_id  !== filterClient)  return false
-    if (filterStatus  && s.status     !== filterStatus)  return false
-    if (filterOrigin  && s.origin     !== filterOrigin) return false
-    if (filterFormE === 'none') { if (s.form_e_supplier_id) return false }
-    else if (filterFormE && s.form_e_supplier_id !== filterFormE) return false
-    if (filterFrom    && s.flight_date < filterFrom) return false
-    if (filterTo      && s.flight_date > filterTo)   return false
-    return true
-  }), [shipments, search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo])
+  const filtered = useMemo(() => {
+    const list = shipments.filter((s) => {
+      if (search) {
+        const q = search.toLowerCase()
+        if (
+          !s.awb_number?.toLowerCase().includes(q) &&
+          !s.clients?.name?.toLowerCase().includes(q)
+        ) return false
+      }
+      if (filterAirline && s.airline_id !== filterAirline) return false
+      if (filterClient  && s.client_id  !== filterClient)  return false
+      if (filterStatus  && s.status     !== filterStatus)  return false
+      if (filterOrigin  && s.origin     !== filterOrigin) return false
+      if (filterFormE === 'none') { if (s.form_e_supplier_id) return false }
+      else if (filterFormE && s.form_e_supplier_id !== filterFormE) return false
+      if (filterFrom    && s.flight_date < filterFrom) return false
+      if (filterTo      && s.flight_date > filterTo)   return false
+      return true
+    })
+
+    return [...list].sort((a, b) => {
+      const da = a.flight_date || ''
+      const db = b.flight_date || ''
+      if (da === db) {
+        return sortDateOrder === 'asc'
+          ? (a.created_at || '').localeCompare(b.created_at || '')
+          : (b.created_at || '').localeCompare(a.created_at || '')
+      }
+      return sortDateOrder === 'asc' ? da.localeCompare(db) : db.localeCompare(da)
+    })
+  }, [shipments, search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder])
 
   // Reset to page 1 whenever the filtered result set changes
-  useEffect(() => { setPage(1) }, [search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo])
+  useEffect(() => { setPage(1) }, [search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
-  const paginated = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE
-    return filtered.slice(start, start + PAGE_SIZE)
-  }, [filtered, currentPage])
+  const paginated = useMemo(() => filtered, [filtered])
 
   // ── Fortnight options (derived from loaded dates) ────────────────────────
 
@@ -406,48 +434,6 @@ export default function Shipments() {
   const destinationOptions   = DESTINATIONS.map((d) => ({ value: d, label: d }))
   const statusOptions        = STATUSES.map((s) => ({ value: s, label: s }))
 
-  // ── Selection / bulk ─────────────────────────────────────────────────────
-
-  const allSelected = filtered.length > 0 && filtered.every((s) => selected.has(s.id))
-
-  function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(filtered.map((s) => s.id)))
-  }
-
-  function toggleRow(id) {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
-  }
-
-  async function handleBulkStatus() {
-    if (!selected.size) return
-    setSaving(true)
-    await supabase
-      .from('shipments')
-      .update({ status: bulkStatus, updated_at: new Date().toISOString() })
-      .in('id', [...selected])
-    setSaving(false)
-    setSelected(new Set())
-    loadAll()
-  }
-
-  async function handleBulkDelete() {
-    if (!selected.size) return
-    setSaving(true)
-    const ids = [...selected]
-    const CHUNK = 100
-    for (let i = 0; i < ids.length; i += CHUNK) {
-      const { error } = await supabase.from('shipments').delete().in('id', ids.slice(i, i + CHUNK))
-      if (error) { setSaving(false); alert(error.message); loadAll(); return }
-    }
-    setSaving(false)
-    setBulkDeleting(false)
-    setSelected(new Set())
-    loadAll()
-  }
 
   // ── CRUD ─────────────────────────────────────────────────────────────────
 
@@ -593,12 +579,13 @@ export default function Shipments() {
 
   // ── Filter helpers ───────────────────────────────────────────────────────
 
-  const hasFilters = search || filterAirline || filterClient || filterStatus || filterOrigin || filterFormE || filterFrom || filterTo
+  const hasFilters = search || filterAirline || filterClient || filterStatus || filterOrigin || filterFormE || filterFrom || filterTo || sortDateOrder !== 'desc'
   const INP_F = 'shrink-0 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent bg-white'
 
   function clearFilters() {
     setSearch(''); setFilterAirline(''); setFilterClient('')
     setFilterStatus(''); setFilterOrigin(''); setFilterFormE(''); setFilterFrom(''); setFilterTo('')
+    setSortDateOrder('desc')
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -613,7 +600,15 @@ export default function Shipments() {
             <h1 className="text-xl sm:text-2xl font-bold text-navy tracking-tight">Master Shipment Log</h1>
             <p className="text-sm text-gray-500 mt-0.5">All shipments — the source of truth for all reports.</p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              name="search"
+              className={INP_F}
+              style={{ minWidth: 200 }}
+              placeholder="Search AWB or client…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
             {!isDataEntry && (
               <Button size="sm" className="sm:text-sm sm:px-4 sm:py-2" variant="secondary" onClick={() => exportCSV(filtered)}>
                 <Download className="w-4 h-4" />Export CSV
@@ -634,14 +629,17 @@ export default function Shipments() {
             {/* Wraps onto extra rows instead of scrolling sideways — with eight
                 controls the single nowrap row clipped the last of them. */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <input
-                name="search"
+              {/* Sort by Date */}
+              <select
+                name="sort_date"
                 className={INP_F}
-                style={{ minWidth: 160 }}
-                placeholder="Search AWB or client…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+                value={sortDateOrder}
+                onChange={(e) => setSortDateOrder(e.target.value)}
+                title="Sort by date"
+              >
+                <option value="desc">Sort by Date: Descending</option>
+                <option value="asc">Sort by Date: Ascending</option>
+              </select>
 
               {/* Fortnight shortcut */}
               <select name="fortnight" className={INP_F} onChange={applyFortnight}
@@ -650,10 +648,6 @@ export default function Shipments() {
                 {fortnights.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
               </select>
 
-              <input type="date" name="filter_from" className={INP_F} value={filterFrom}
-                onChange={(e) => setFilterFrom(e.target.value)} title="From date" />
-              <input type="date" name="filter_to" className={INP_F} value={filterTo}
-                onChange={(e) => setFilterTo(e.target.value)} title="To date" />
 
               <select name="filter_airline" className={INP_F} value={filterAirline} onChange={(e) => setFilterAirline(e.target.value)}>
                 <option value="">All airlines</option>
@@ -697,31 +691,6 @@ export default function Shipments() {
           </CardBody>
         </Card>
 
-        {/* Bulk action bar */}
-        {selected.size > 0 && (
-          <div className="bg-accent/10 border border-accent/30 rounded-lg px-4 py-2.5 flex flex-wrap items-center gap-2 sm:gap-4">
-            <span className="text-sm font-medium text-accent">
-              {selected.size} shipment{selected.size !== 1 ? 's' : ''} selected
-            </span>
-            <span className="text-gray-300 hidden sm:inline">|</span>
-            <span className="text-sm text-gray-600">Mark as</span>
-            <select className={INP_F + ' py-1'} value={bulkStatus}
-              onChange={(e) => setBulkStatus(e.target.value)}>
-              {STATUSES.map((s) => <option key={s}>{s}</option>)}
-            </select>
-            <Button size="sm" onClick={handleBulkStatus} disabled={saving}>
-              {saving && <Spinner size="sm" />}Apply
-            </Button>
-            <span className="text-gray-300 hidden sm:inline">|</span>
-            <Button size="sm" variant="danger" onClick={() => setBulkDeleting(true)} disabled={saving}>
-              <Trash2 className="w-4 h-4" />Delete selected
-            </Button>
-            <button className="ml-auto text-xs text-gray-400 hover:text-gray-600"
-              onClick={() => setSelected(new Set())}>
-              Deselect all
-            </button>
-          </div>
-        )}
 
         {/* Shipment table */}
         <Card>
@@ -742,28 +711,24 @@ export default function Shipments() {
             <Table>
               <Thead>
                 <tr>
-                  <Th className="w-10">
-                    <input type="checkbox" checked={allSelected} onChange={toggleAll}
-                      className="w-4 h-4 accent-navy cursor-pointer" />
-                  </Th>
-                  <Th>Date</Th>
                   <Th>Actions</Th>
+                  <Th>Date</Th>
                   <Th>AWB Number</Th>
-                  <Th>Airline</Th>
+                  <Th>Status</Th>
                   <Th>Client</Th>
                   <Th>Origin</Th>
                   <Th>Destination</Th>
                   <Th className="text-right">Pieces</Th>
                   <Th className="text-right">Weight (KGS)</Th>
-                  {!isDataEntry && <Th className="text-right">USD Rate</Th>}
                   {!isDataEntry && <Th className="text-right">Net Rate (PKR/kg)</Th>}
+                  {!isDataEntry && <Th className="text-right">Other Charges (PKR)</Th>}
                   {!isDataEntry && <Th className="text-right">Freight Amount (PKR)</Th>}
                   {!isDataEntry && <Th className="text-right">CASS Rate (USD/kg)</Th>}
                   {!isDataEntry && <Th className="text-right">CASS Freight Total (PKR)</Th>}
                   {!isDataEntry && <Th>Clearing Agent</Th>}
                   {!isDataEntry && <Th className="text-right">Clearing Charges (PKR)</Th>}
                   {!isDataEntry && <Th className="text-right">IDC Tax (PKR)</Th>}
-                  {!isDataEntry && <Th className="text-right">Other Charges (PKR)</Th>}
+                  {!isDataEntry && <Th className="text-right">USD Rate</Th>}
                   {!isDataEntry && <Th className="text-right">AWB Fixed Fee (PKR)</Th>}
                   {!isDataEntry && <Th>Sales Agent</Th>}
                   {!isDataEntry && <Th className="text-right">SA Commission (PKR/kg)</Th>}
@@ -775,7 +740,7 @@ export default function Shipments() {
                   {!isDataEntry && <Th className="text-right">Form E Rate Payable</Th>}
                   {!isDataEntry && <Th className="text-right">Form E Amount (PKR)</Th>}
                   {!isDataEntry && <Th className="text-right">Total Receivable (PKR)</Th>}
-                  <Th>Status</Th>
+                  <Th>Airline</Th>
                   <Th>Notes</Th>
                 </tr>
               </Thead>
@@ -788,13 +753,6 @@ export default function Shipments() {
                     : Number(s.form_e_usd_value || 0)
                   return (
                   <Tr key={s.id} className={STATUS_ROW[s.status] ?? ''}>
-                    <Td>
-                      <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggleRow(s.id)}
-                        className="w-4 h-4 accent-navy cursor-pointer" />
-                    </Td>
-                    <EditableCell type="date" value={s.flight_date}
-                      display={<span className="whitespace-nowrap">{fmtDate(s.flight_date)}</span>}
-                      onSave={(v) => updateField(s.id, 'flight_date', v)} />
                     <Td>
                       <div className="flex gap-1">
                         <button title="Edit"
@@ -823,12 +781,19 @@ export default function Shipments() {
                         )}
                       </div>
                     </Td>
+                    <EditableCell type="date" value={s.flight_date}
+                      display={<span className="whitespace-nowrap">{fmtDate(s.flight_date)}</span>}
+                      onSave={(v) => updateField(s.id, 'flight_date', v)} />
                     <EditableCell type="text" value={s.awb_number}
                       display={<span className="font-mono font-semibold text-navy whitespace-nowrap">{s.awb_number}</span>}
                       onSave={(v) => updateField(s.id, 'awb_number', v)} />
-                    <EditableCell type="select" value={s.airline_id} options={airlineOptions}
-                      display={<span className="whitespace-nowrap">{s.airlines?.name ?? '—'}</span>}
-                      onSave={(v) => updateField(s.id, 'airline_id', v)} />
+                    <EditableCell type="select" value={s.status} options={statusOptions}
+                      display={
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${STATUS_BADGE[s.status] ?? ''}`}>
+                          {s.status}
+                        </span>
+                      }
+                      onSave={(v) => updateField(s.id, 'status', v)} />
                     <EditableCell type="select" value={s.client_id} options={clientOptions}
                       display={<span className="whitespace-nowrap">{s.clients?.name ?? '—'}</span>}
                       onSave={(v) => updateField(s.id, 'client_id', v)} />
@@ -844,14 +809,14 @@ export default function Shipments() {
                       display={Number(s.chargeable_weight || 0).toFixed(3)}
                       onSave={(v) => updateField(s.id, 'chargeable_weight', v)} />
                     {!isDataEntry && (
-                      <EditableCell type="number" step="0.01" align="right" value={s.pkr_exchange_rate}
-                        display={fmt(s.pkr_exchange_rate)}
-                        onSave={(v) => updateField(s.id, 'pkr_exchange_rate', v)} />
-                    )}
-                    {!isDataEntry && (
                       <EditableCell type="number" step="0.0001" align="right" value={s.net_rate}
                         display={fmt(s.net_rate)}
                         onSave={(v) => updateField(s.id, 'net_rate', v)} />
+                    )}
+                    {!isDataEntry && (
+                      <EditableCell type="number" step="0.01" align="right" value={s.other_charges_due_airline}
+                        display={fmt(s.other_charges_due_airline)}
+                        onSave={(v) => updateField(s.id, 'other_charges_due_airline', v)} />
                     )}
                     {!isDataEntry && (
                       <EditableCell disabled align="right" display={`PKR ${fmt(s.freight_amount)}`} />
@@ -880,9 +845,9 @@ export default function Shipments() {
                         onSave={(v) => updateField(s.id, 'idc_tax', v)} />
                     )}
                     {!isDataEntry && (
-                      <EditableCell type="number" step="0.01" align="right" value={s.other_charges_due_airline}
-                        display={fmt(s.other_charges_due_airline)}
-                        onSave={(v) => updateField(s.id, 'other_charges_due_airline', v)} />
+                      <EditableCell type="number" step="0.01" align="right" value={s.pkr_exchange_rate}
+                        display={fmt(s.pkr_exchange_rate)}
+                        onSave={(v) => updateField(s.id, 'pkr_exchange_rate', v)} />
                     )}
                     {!isDataEntry && (
                       <EditableCell type="number" step="0.01" align="right" value={s.awb_fixed_fee}
@@ -932,13 +897,9 @@ export default function Shipments() {
                       <EditableCell disabled align="right"
                         display={<span className="font-semibold text-gray-800">PKR {fmt(s.total_receivable)}</span>} />
                     )}
-                    <EditableCell type="select" value={s.status} options={statusOptions}
-                      display={
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${STATUS_BADGE[s.status] ?? ''}`}>
-                          {s.status}
-                        </span>
-                      }
-                      onSave={(v) => updateField(s.id, 'status', v)} />
+                    <EditableCell type="select" value={s.airline_id} options={airlineOptions}
+                      display={<span className="whitespace-nowrap">{s.airlines?.name ?? '—'}</span>}
+                      onSave={(v) => updateField(s.id, 'airline_id', v)} />
                     <EditableCell type="text" value={s.notes ?? ''} display={s.notes || '—'}
                       onSave={(v) => updateField(s.id, 'notes', v)} />
                   </Tr>
@@ -947,9 +908,8 @@ export default function Shipments() {
               </Tbody>
               <Tfoot>
                 <tr>
-                  <td />
                   <Td />
-                  {/* Actions, AWB, Airline, Client, Origin, Destination, Pieces */}
+                  {/* Date, AWB, Status, Client, Origin, Destination, Pieces */}
                   <Td /><Td /><Td /><Td /><Td /><Td /><Td />
                   <Td />
                   {!isDataEntry && Array.from({ length: 18 }).map((_, i) => <Td key={i} />)}
@@ -966,7 +926,7 @@ export default function Shipments() {
           {!loading && !error && filtered.length > 0 && (
             <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-gray-200 text-sm text-gray-600">
               <span>
-                Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
+                Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, totalRows)} of {totalRows}
               </span>
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="secondary" disabled={currentPage <= 1}
@@ -1011,14 +971,6 @@ export default function Shipments() {
         />
       )}
 
-      {bulkDeleting && (
-        <ConfirmDialog
-          title="Delete Shipments"
-          message={`${selected.size} shipment${selected.size !== 1 ? 's' : ''} will be permanently deleted. Any linked invoice data is kept.`}
-          onConfirm={handleBulkDelete}
-          onCancel={() => setBulkDeleting(false)}
-        />
-      )}
 
       {showImport && (
         <ShipmentImportModal

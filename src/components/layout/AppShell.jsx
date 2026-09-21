@@ -4,15 +4,19 @@ import { Topbar } from './Topbar'
 import { LowStockAlert } from './LowStockAlert'
 
 export function AppShell({ children }) {
-  const [collapsed, setCollapsed] = useState(
-    () => localStorage.getItem('sidebar-collapsed') === 'true'
-  )
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return localStorage.getItem('sidebar-collapsed') === 'true'
+  })
   const [mobileOpen, setMobileOpen] = useState(false)
 
   function toggleCollapsed() {
+    setMobileOpen(false)
     setCollapsed(prev => {
       const next = !prev
-      localStorage.setItem('sidebar-collapsed', String(next))
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sidebar-collapsed', String(next))
+      }
       return next
     })
   }
