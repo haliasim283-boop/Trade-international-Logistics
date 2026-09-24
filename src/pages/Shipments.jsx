@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Plus, Download, Pencil, Trash2, FileText, Upload, MessageSquare, ChevronLeft, ChevronRight, Copy, Check } from 'lucide-react'
+import { Plus, Download, Pencil, Trash2, FileText, Upload, MessageSquare, ChevronLeft, ChevronRight, Copy, Check, Bell } from 'lucide-react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -11,6 +11,7 @@ import { Modal, ConfirmDialog } from '../components/ui/Modal'
 import { ShipmentFormModal } from '../components/shipments/ShipmentFormModal'
 import { ShipmentImportModal } from '../components/shipments/ShipmentImportModal'
 import { buildBookingMessage, buildBookingPdfFile, COMMODITY_OPTIONS, AIRCRAFT_OPTIONS } from '../components/shipments/ShipmentBookingPrint'
+import notificationSoundUrl from '../../notify.mp3'
 
 const SHIPMENT_SELECT = '*, airlines(name, iata_prefix), clients(name, phone), clearing_agents(name, origin_code), form_e_suppliers(name), sales_agents(name)'
 
@@ -24,6 +25,16 @@ const FLOAT_FIELDS = new Set([
 ])
 const INT_FIELDS      = new Set(['pieces'])
 const NULLABLE_FIELDS = new Set(['clearing_agent_id', 'form_e_supplier_id', 'sales_agent_id'])
+
+function playShipmentAddedSound() {
+  try {
+    const audio = new Audio(notificationSoundUrl)
+    audio.volume = 0.7
+    audio.play().catch(() => {})
+  } catch {
+    return
+  }
+}
 
 function coerceField(field, raw) {
   if (FLOAT_FIELDS.has(field)) return parseFloat(raw) || 0
@@ -265,6 +276,7 @@ export default function Shipments() {
   const [loading,        setLoading]        = useState(true)
   const [error,          setError]          = useState(null)
   const [saving,         setSaving]         = useState(false)
+  const [successNotice,  setSuccessNotice] = useState(null)
 
   // Incremented every time filters/sort change — used to cancel stale background fetches.
   const fetchKeyRef = useRef(0)
@@ -301,6 +313,12 @@ export default function Shipments() {
 
   // ── Pagination state ──
   const [page, setPage] = useState(1)
+
+  useEffect(() => {
+    if (!successNotice) return undefined
+    const timer = setTimeout(() => setSuccessNotice(null), 4000)
+    return () => clearTimeout(timer)
+  }, [successNotice])
 
 
   // ── Load ────────────────────────────────────────────────────────────────
@@ -508,6 +526,10 @@ export default function Shipments() {
     setSaving(false)
     if (error) { alert(error.message); return }
     setFormModal(null)
+    if (formModal.mode === 'add') {
+      setSuccessNotice('Shipment added successfully')
+      playShipmentAddedSound()
+    }
     loadAll()
   }
 
@@ -644,6 +666,24 @@ export default function Shipments() {
 
   return (
     <>
+      {successNotice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 right-6 z-[60] flex items-center gap-2 rounded-lg bg-green-600 px-4 py-3 text-sm font-medium text-white shadow-lg"
+        >
+          <Bell className="h-4 w-4" />
+          {successNotice}
+          <button
+            type="button"
+            className="ml-2 text-lg leading-none text-white/80 hover:text-white"
+            aria-label="Dismiss notification"
+            onClick={() => setSuccessNotice(null)}
+          >
+            ×
+          </button>
+        </div>
+      )}
       <div className="p-4 sm:p-6 space-y-5">
 
         {/* Page header */}
