@@ -315,7 +315,7 @@ export function parseCassReport(pages) {
     // Match on the title in the page's own header band only. The Export
     // Billing Statement carries a footnote mentioning "Additional Adjustments
     // and Charges (BTA)", which would otherwise misidentify that page.
-    const header      = lines.slice(0, 3).join('\n').toUpperCase()
+    const header      = lines.slice(0, 10).join('\n').toUpperCase()
     const isInvoice   = header.includes('CARGO SALES INVOICE/ADJUSTMENT')
     const isOtherChg  = header.includes('OTHER CHARGES SPECIFICATION')
     const isBilling   = header.includes('EXPORT BILLING STATEMENT')
@@ -464,11 +464,15 @@ export function parseCassReport(pages) {
           if (toks(c).some((x) => isNum(x) && x.includes('.'))) break
           cont.push(c)
         }
+        const text = [t.slice(1, amtIdx).join(' '), ...cont].join(' ').trim()
+        const dipMatch = text.match(/(\d+)\s*PKR\s*per\s*NUMBER\s*OF\s*AWB\s*(\d+)/i)
         adjustments.push({
           airline_prefix: t[0],
-          text:           [t.slice(1, amtIdx).join(' '), ...cont].join(' ').trim(),
+          text,
           amount:         num(t[amtIdx]),
           btn_number:     t.slice(amtIdx + 1).join(' ') || null,
+          rate:           dipMatch ? Number(dipMatch[1]) : null,
+          awb_count:      dipMatch ? Number(dipMatch[2]) : null,
         })
       }
     }

@@ -33,31 +33,50 @@ function coerceField(field, raw) {
   return raw
 }
 
-// Fetch only the data needed for the current page to avoid loading the whole
-// shipments table when the user opens the master log.
-async function fetchShipmentsPage({ page, search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder = 'desc' }) {
-  const from = (page - 1) * PAGE_SIZE
-  const to = from + PAGE_SIZE - 1
+const PAGE_SIZE = 50   // rows shown per page (first batch fetched immediately)
+const BG_BATCH  = 500  // batch size for background prefetch
 
+// Build a base Supabase query with all active filters applied (no range).
+function buildShipmentsQuery({ search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder = 'desc' }, { count } = {}) {
   let query = supabase
     .from('shipments')
-    .select(SHIPMENT_SELECT, { count: 'exact' })
+    .select(SHIPMENT_SELECT, count ? { count: 'exact' } : undefined)
     .order('flight_date', { ascending: sortDateOrder === 'asc' })
     .order('created_at',  { ascending: sortDateOrder === 'asc' })
-    .range(from, to)
 
   if (filterAirline) query = query.eq('airline_id', filterAirline)
-  if (filterClient) query = query.eq('client_id', filterClient)
-  if (filterStatus) query = query.eq('status', filterStatus)
-  if (filterOrigin) query = query.eq('origin', filterOrigin)
+  if (filterClient)  query = query.eq('client_id', filterClient)
+  if (filterStatus)  query = query.eq('status', filterStatus)
+  if (filterOrigin)  query = query.eq('origin', filterOrigin)
   if (filterFormE === 'none') query = query.is('form_e_supplier_id', null)
   else if (filterFormE) query = query.eq('form_e_supplier_id', filterFormE)
   if (filterFrom) query = query.gte('flight_date', filterFrom)
-  if (filterTo) query = query.lte('flight_date', filterTo)
-  if (search) query = query.ilike('awb_number', `%${search}%`)
+  if (filterTo)   query = query.lte('flight_date', filterTo)
+  if (search)     query = query.ilike('awb_number', `%${search}%`)
 
-  const { data, count, error } = await query
+  return query
+}
+
+// Fetch the first PAGE_SIZE rows and total count — shown immediately on open.
+async function fetchShipmentsFirstPage(filters) {
+  const { data, count, error } = await buildShipmentsQuery(filters, { count: true })
+    .range(0, PAGE_SIZE - 1)
   return { data: data ?? [], count: count ?? 0, error }
+}
+
+// Fetch every shipment AFTER the first page, in large batches, calling
+// onBatch(rows) as each batch arrives. Stops early if isCancelled() returns true.
+async function fetchShipmentsBackground(filters, totalCount, onBatch, isCancelled) {
+  let offset = PAGE_SIZE
+  while (offset < totalCount) {
+    if (isCancelled()) return
+    const { data, error } = await buildShipmentsQuery(filters)
+      .range(offset, offset + BG_BATCH - 1)
+    if (isCancelled()) return
+    if (error || !data?.length) break
+    onBatch(data)
+    offset += BG_BATCH
+  }
 }
 
 // ── Inline-editable table cell ──────────────────────────────────────────────
@@ -165,8 +184,6 @@ const STATUS_BADGE = {
 
 const STATUSES = ['PNDNG', 'AP-BLZ', 'BKD', 'CNCLD', 'NO SHOW', 'OFFLOADED', 'SHPD', 'FBL', 'EMAILED']
 
-const PAGE_SIZE = 50
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmt(n) {
@@ -244,9 +261,13 @@ export default function Shipments() {
   const [idcTaxRate,     setIdcTaxRate]     = useState(0)
   const [fixedUsdRate,   setFixedUsdRate]   = useState(0)
   const [totalRows,      setTotalRows]      = useState(0)
+  const [allLoaded,      setAllLoaded]      = useState(false)  // true once background fetch completes
   const [loading,        setLoading]        = useState(true)
   const [error,          setError]          = useState(null)
   const [saving,         setSaving]         = useState(false)
+
+  // Incremented every time filters/sort change — used to cancel stale background fetches.
+  const fetchKeyRef = useRef(0)
 
   // ── Modal state ──
   const [formModal,   setFormModal]   = useState(null)   // { mode, shipment? }
@@ -284,9 +305,19 @@ export default function Shipments() {
 
   // ── Load ────────────────────────────────────────────────────────────────
 
+  const filters = useMemo(() => ({
+    search, filterAirline, filterClient, filterStatus,
+    filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder,
+  }), [search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder])
+
   const loadAll = useCallback(async () => {
     if (!supabase) { setLoading(false); setError('Supabase not configured'); return }
-    setLoading(true); setError(null)
+
+    // Bump the fetch key so any in-flight background fetch from a previous
+    // filter set knows to abort.
+    const myKey = ++fetchKeyRef.current
+
+    setLoading(true); setError(null); setAllLoaded(false)
 
     const [
       shipmentsPage,
@@ -297,18 +328,7 @@ export default function Shipments() {
       { data: settData },
       { data: saData },
     ] = await Promise.all([
-      fetchShipmentsPage({
-        page,
-        search,
-        filterAirline,
-        filterClient,
-        filterStatus,
-        filterOrigin,
-        filterFormE,
-        filterFrom,
-        filterTo,
-        sortDateOrder,
-      }),
+      fetchShipmentsFirstPage(filters),
       supabase.from('airlines').select('*').eq('is_active', true).order('name'),
       supabase.from('clients').select('id, name').eq('is_active', true).order('name'),
       supabase.from('clearing_agents').select('*').eq('is_active', true).order('city'),
@@ -317,33 +337,61 @@ export default function Shipments() {
       supabase.from('sales_agents').select('id, name, commission_pkr_per_kg').eq('is_active', true).order('name'),
     ])
 
+    if (fetchKeyRef.current !== myKey) return  // filters changed while we were loading
+
     if (shipmentsPage.error) {
       setError(shipmentsPage.error.message)
-    } else {
-      setShipments(shipmentsPage.data ?? [])
-      setTotalRows(shipmentsPage.count ?? 0)
-      setAirlines(aData ?? [])
-      setClients(cData ?? [])
-      setClearingAgents(caData ?? [])
-      setFormESuppliers(feData ?? [])
-      setIdcTaxRate(parseFloat(settData?.idc_tax_rate ?? 0))
-      setSalesAgents(saData ?? [])
-      // Only use fixed rate if today falls within the 15-day window
-      const rate      = parseFloat(settData?.fixed_usd_pkr_rate ?? 0)
-      const validFrom = settData?.fixed_usd_rate_valid_from
-      if (rate && validFrom) {
-        const from  = new Date(validFrom)
-        const until = new Date(from); until.setDate(until.getDate() + 14)
-        const today = new Date().toISOString().slice(0, 10)
-        const f     = validFrom.slice(0, 10)
-        const u     = until.toISOString().slice(0, 10)
-        setFixedUsdRate(today >= f && today <= u ? rate : 0)
-      } else {
-        setFixedUsdRate(0)
-      }
+      setLoading(false)
+      return
     }
+
+    const totalCount = shipmentsPage.count ?? 0
+    setShipments(shipmentsPage.data ?? [])
+    setTotalRows(totalCount)
+    setAirlines(aData ?? [])
+    setClients(cData ?? [])
+    setClearingAgents(caData ?? [])
+    setFormESuppliers(feData ?? [])
+    setIdcTaxRate(parseFloat(settData?.idc_tax_rate ?? 0))
+    setSalesAgents(saData ?? [])
+    // Only use fixed rate if today falls within the 15-day window
+    const rate      = parseFloat(settData?.fixed_usd_pkr_rate ?? 0)
+    const validFrom = settData?.fixed_usd_rate_valid_from
+    if (rate && validFrom) {
+      const from  = new Date(validFrom)
+      const until = new Date(from); until.setDate(until.getDate() + 14)
+      const today = new Date().toISOString().slice(0, 10)
+      const f     = validFrom.slice(0, 10)
+      const u     = until.toISOString().slice(0, 10)
+      setFixedUsdRate(today >= f && today <= u ? rate : 0)
+    } else {
+      setFixedUsdRate(0)
+    }
+
     setLoading(false)
-  }, [page, search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder])
+
+    // ── Background prefetch: fetch remaining rows silently so that pagination
+    //    never needs to hit the network again.
+    if (totalCount > PAGE_SIZE) {
+      fetchShipmentsBackground(
+        filters,
+        totalCount,
+        (batch) => {
+          if (fetchKeyRef.current !== myKey) return  // stale, discard
+          setShipments((prev) => {
+            // Avoid duplicates by keying on id.
+            const ids = new Set(prev.map((s) => s.id))
+            return [...prev, ...batch.filter((s) => !ids.has(s.id))]
+          })
+        },
+        () => fetchKeyRef.current !== myKey,  // isCancelled
+      ).then(() => {
+        if (fetchKeyRef.current === myKey) setAllLoaded(true)
+      })
+    } else {
+      setAllLoaded(true)
+    }
+  }, [filters])
 
   useEffect(() => { loadAll() }, [loadAll])
 
@@ -381,12 +429,16 @@ export default function Shipments() {
     })
   }, [shipments, search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder])
 
-  // Reset to page 1 whenever the filtered result set changes
+  // Reset to page 1 whenever filters/sort change
   useEffect(() => { setPage(1) }, [search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder])
 
-  const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE))
-  const currentPage = Math.min(page, totalPages)
-  const paginated = useMemo(() => filtered, [filtered])
+  // Client-side pagination over the fully-filtered list.
+  const totalPages   = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage  = Math.min(page, totalPages)
+  const paginated    = useMemo(
+    () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [filtered, currentPage]
+  )
 
   // ── Fortnight options (derived from loaded dates) ────────────────────────
 
@@ -925,8 +977,11 @@ export default function Shipments() {
           )}
           {!loading && !error && filtered.length > 0 && (
             <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-gray-200 text-sm text-gray-600">
-              <span>
-                Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, totalRows)} of {totalRows}
+              <span className="flex items-center gap-2">
+                Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
+                {!allLoaded && (
+                  <span className="text-xs text-gray-400 italic">— loading remaining rows…</span>
+                )}
               </span>
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="secondary" disabled={currentPage <= 1}
