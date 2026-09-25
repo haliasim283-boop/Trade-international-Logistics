@@ -348,7 +348,7 @@ export default function Shipments() {
     ] = await Promise.all([
       fetchShipmentsFirstPage(filters),
       supabase.from('airlines').select('*').eq('is_active', true).order('name'),
-      supabase.from('clients').select('id, name').eq('is_active', true).order('name'),
+      supabase.from('clients').select('id, name, clearing_applicable, form_e_applicable').eq('is_active', true).order('name'),
       supabase.from('clearing_agents').select('*').eq('is_active', true).order('city'),
       supabase.from('form_e_suppliers').select('id, name').eq('is_active', true).order('name'),
       supabase.from('company_settings').select('*').eq('id', 1).single(),

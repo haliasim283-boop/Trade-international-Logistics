@@ -114,6 +114,10 @@ export function ShipmentFormModal({
     return { ...EMPTY, pkr_exchange_rate: fixedUsdRate || EMPTY.pkr_exchange_rate }
   })
 
+  const selectedClient = clients.find((client) => client.id === form.client_id)
+  const clearingApplicable = selectedClient?.clearing_applicable !== false
+  const formEApplicable = selectedClient?.form_e_applicable !== false
+
   const [existingUrls, setExistingUrls] = useState(() =>
     mode === 'edit' ? (shipment?.document_urls ?? []) : []
   )
@@ -170,12 +174,12 @@ export function ShipmentFormModal({
   const cw                    = parseFloat(form.chargeable_weight || 0)
   const freightAmount         = r2(cw * parseFloat(form.net_rate || 0))
   const formEUsdTotal         = r2(cw * parseFloat(form.form_e_usd_value || 0))
-  const formEAmountPkr        = r2(formEUsdTotal * parseFloat(form.form_e_pkr_rate || 0))
+  const formEAmountPkr        = formEApplicable ? r2(formEUsdTotal * parseFloat(form.form_e_pkr_rate || 0)) : 0
   const salesAgentCommission  = r2(cw * parseFloat(form.sales_agent_commission_per_kg || 0))
   const totalReceivable       = r2(
     freightAmount
-    + parseFloat(form.clearing_charges || 0)
-    + parseFloat(form.idc_tax || 0)
+    + (clearingApplicable ? parseFloat(form.clearing_charges || 0) : 0)
+    + (clearingApplicable ? parseFloat(form.idc_tax || 0) : 0)
     + parseFloat(form.other_charges_due_airline || 0)
     + parseFloat(form.awb_fixed_fee || 0)
     + formEAmountPkr
@@ -188,6 +192,20 @@ export function ShipmentFormModal({
 
   function handleAirlineChange(id) {
     setForm((p) => ({ ...p, airline_id: id }))
+  }
+
+  function handleClientChange(id) {
+    const client = clients.find((item) => item.id === id)
+    setForm((p) => ({
+      ...p,
+      client_id: id,
+      ...(client?.clearing_applicable === false
+        ? { clearing_agent_id: '', clearing_charges: 0, idc_tax: 0 }
+        : {}),
+      ...(client?.form_e_applicable === false
+        ? { form_e_usd_value: 0, form_e_pkr_rate: 0, form_e_pkr_rate_payable: 0, form_e_supplier_id: '' }
+        : {}),
+    }))
   }
 
   function handleOriginChange(raw) {
@@ -258,14 +276,14 @@ export function ShipmentFormModal({
       chargeable_weight:  parseFloat(form.chargeable_weight) || 0,
       net_rate:           parseFloat(form.net_rate) || 0,
       pkr_exchange_rate:  parseFloat(form.pkr_exchange_rate) || 1,
-      clearing_charges:   parseFloat(form.clearing_charges) || 0,
-      idc_tax:            parseFloat(form.idc_tax) || 0,
+      clearing_charges:   clearingApplicable ? parseFloat(form.clearing_charges) || 0 : 0,
+      idc_tax:            clearingApplicable ? parseFloat(form.idc_tax) || 0 : 0,
       other_charges_due_airline:  parseFloat(form.other_charges_due_airline) || 0,
       awb_fixed_fee:              parseFloat(form.awb_fixed_fee) || 0,
-      form_e_usd_value:           formEUsdTotal,
-      form_e_pkr_rate:          parseFloat(form.form_e_pkr_rate) || 0,
-      form_e_pkr_rate_payable:  parseFloat(form.form_e_pkr_rate_payable) || 0,
-      form_e_supplier_id: form.form_e_supplier_id || null,
+      form_e_usd_value:           formEApplicable ? formEUsdTotal : 0,
+      form_e_pkr_rate:          formEApplicable ? parseFloat(form.form_e_pkr_rate) || 0 : 0,
+      form_e_pkr_rate_payable:  formEApplicable ? parseFloat(form.form_e_pkr_rate_payable) || 0 : 0,
+      form_e_supplier_id: formEApplicable ? form.form_e_supplier_id || null : null,
       cass_airline_rate:  parseFloat(form.cass_airline_rate) || 0,
       clearing_agent_id:             form.clearing_agent_id || null,
       sales_agent_id:                form.sales_agent_id    || null,
@@ -340,7 +358,7 @@ export function ShipmentFormModal({
               </select>
             </Field>
             <Field label="Client" required>
-              <select name="client_id" className={INP} value={form.client_id} onChange={setF('client_id')}>
+              <select name="client_id" className={INP} value={form.client_id} onChange={(e) => handleClientChange(e.target.value)}>
                 <option value="">Select client…</option>
                 {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -418,7 +436,7 @@ export function ShipmentFormModal({
               <input readOnly className={RO} value={pkr(cassFreightTotal)} />
             </Field>
             <Field label="Clearing Agent">
-              <select name="clearing_agent_id" className={INP} value={form.clearing_agent_id}
+              <select name="clearing_agent_id" className={INP} value={form.clearing_agent_id} disabled={!clearingApplicable}
                 onChange={(e) => handleAgentChange(e.target.value)}>
                 <option value="">None / manual</option>
                 {clearingAgents.map((a) => (
@@ -429,12 +447,13 @@ export function ShipmentFormModal({
             <Field label="Clearing Charges (PKR)">
               <input type="number" name="clearing_charges" step="0.01" min="0" className={INP}
                 value={form.clearing_charges}
+                disabled={!clearingApplicable}
                 onChange={(e) => handleClearingChargesChange(e.target.value)} />
             </Field>
             <Field label={idcLabel}>
               <input type="number" name="idc_tax" step="0.01" min="0" className={INP}
                 value={form.idc_tax} onChange={setF('idc_tax')}
-                disabled={form.origin !== 'PEW'} />
+                disabled={form.origin !== 'PEW' || !clearingApplicable} />
             </Field>
           </div>
           <div className="grid grid-cols-3 gap-3">
@@ -476,22 +495,22 @@ export function ShipmentFormModal({
         <Section title="Form E">
           <div className="grid grid-cols-4 gap-3">
             <Field label="Form E Supplier">
-              <select name="form_e_supplier_id" className={INP} value={form.form_e_supplier_id} onChange={setF('form_e_supplier_id')}>
+              <select name="form_e_supplier_id" className={INP} value={form.form_e_supplier_id} disabled={!formEApplicable} onChange={setF('form_e_supplier_id')}>
                 <option value="">None</option>
                 {formESuppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </Field>
             <Field label="USD Rate (per kg)">
               <input type="number" name="form_e_usd_value" step="0.01" min="0" className={INP}
-                value={form.form_e_usd_value} onChange={setF('form_e_usd_value')} placeholder="1.00" />
+                value={form.form_e_usd_value} disabled={!formEApplicable} onChange={setF('form_e_usd_value')} placeholder="1.00" />
             </Field>
             <Field label="PKR Rate Receivable">
               <input type="number" name="form_e_pkr_rate" step="0.01" min="0" className={INP}
-                value={form.form_e_pkr_rate} onChange={setF('form_e_pkr_rate')} placeholder="0.00" />
+                value={form.form_e_pkr_rate} disabled={!formEApplicable} onChange={setF('form_e_pkr_rate')} placeholder="0.00" />
             </Field>
             <Field label="PKR Rate Payable">
               <input type="number" name="form_e_pkr_rate_payable" step="0.01" min="0" className={INP}
-                value={form.form_e_pkr_rate_payable} onChange={setF('form_e_pkr_rate_payable')} placeholder="0.00" />
+                value={form.form_e_pkr_rate_payable} disabled={!formEApplicable} onChange={setF('form_e_pkr_rate_payable')} placeholder="0.00" />
             </Field>
             <Field label="Form E Amount (PKR)">
               <input readOnly className={RO} value={pkr(formEAmountPkr)} />

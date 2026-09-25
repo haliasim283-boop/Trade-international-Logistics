@@ -17,13 +17,16 @@ function fmtDate(s) {
 
 export function buildPrintHTML(entries, client, summary, dateLabel, awbFixedFee = 0) {
   const isSales = summary?.isSalesReport || false
+  const clearingApplicable = client?.clearing_applicable !== false
+  const formEApplicable = client?.form_e_applicable !== false
+  const detailSpan = 10 - (clearingApplicable ? 0 : 1) - (formEApplicable ? 0 : 1)
 
   const rows = entries.map((e) => {
     if (e.type === 'opening' || e.type === 'carry-forward') {
       return `
         <tr class="row-carry">
           <td>${fmtDate(e.date)}</td>
-          <td colspan="12" class="italic">${esc(e.description)}</td>
+          <td colspan="${12 - (clearingApplicable ? 0 : 1) - (formEApplicable ? 0 : 1)}" class="italic">${esc(e.description)}</td>
           <td class="num bold">${fmt(e.balance)}</td>
         </tr>`
     }
@@ -31,7 +34,7 @@ export function buildPrintHTML(entries, client, summary, dateLabel, awbFixedFee 
       return `
         <tr class="row-payment">
           <td>${fmtDate(e.date)}</td>
-          <td colspan="10">${esc(e.description)}</td>
+          <td colspan="${detailSpan}">${esc(e.description)}</td>
           <td></td>
           <td class="num bold">${fmt(e.received)}</td>
           <td class="num bold ${e.balance > 0 ? 'danger' : 'ok'}">${fmt(e.balance)}</td>
@@ -42,7 +45,7 @@ export function buildPrintHTML(entries, client, summary, dateLabel, awbFixedFee 
       return `
         <tr class="${isCredit ? 'row-credit' : 'row-debit'}">
           <td>${fmtDate(e.date)}</td>
-          <td colspan="10">${isCredit ? 'CREDIT: ' : 'DEBIT: '}${esc(e.description)}</td>
+          <td colspan="${detailSpan}">${isCredit ? 'CREDIT: ' : 'DEBIT: '}${esc(e.description)}</td>
           <td class="num bold">${isCredit ? fmt(e.receivable) : ''}</td>
           <td class="num bold">${!isCredit ? fmt(e.received) : ''}</td>
           <td class="num bold ${e.balance > 0 ? 'danger' : 'ok'}">${fmt(e.balance)}</td>
@@ -58,9 +61,9 @@ export function buildPrintHTML(entries, client, summary, dateLabel, awbFixedFee 
         <td class="num">${e.pieces ?? ''}</td>
         <td class="num">${Number(e.weight || 0).toFixed(3)}</td>
         <td class="num">${e.net_rate > 0 ? fmt(e.net_rate) : ''}</td>
-        <td class="num">${e.clearing > 0 ? fmt(e.clearing) : ''}</td>
+        ${clearingApplicable ? `<td class="num">${e.clearing > 0 ? fmt(e.clearing) : ''}</td>` : ''}
         <td class="num">${e.other > 0 ? fmt(e.other) : ''}</td>
-        <td class="num">${e.form_e > 0 ? fmt(e.form_e) : ''}</td>
+        ${formEApplicable ? `<td class="num">${e.form_e > 0 ? fmt(e.form_e) : ''}</td>` : ''}
         <td class="num">${fmt(awbFixedFee)}</td>
         <td class="num bold">${fmt(e.receivable)}</td>
         <td></td>
@@ -171,20 +174,7 @@ export function buildPrintHTML(entries, client, summary, dateLabel, awbFixedFee 
 
   <table>
     <colgroup>
-      <col style="width:7%">
-      <col style="width:10%">
-      <col style="width:4%">
-      <col style="width:4%">
-      <col style="width:4%">
-      <col style="width:7%">
-      <col style="width:7%">
-      <col style="width:8%">
-      <col style="width:8%">
-      <col style="width:7%">
-      <col style="width:7%">
-      <col style="width:9%">
-      <col style="width:9%">
-      <col style="width:9%">
+      ${['7%', '10%', '4%', '4%', '4%', '7%', '7%', clearingApplicable ? '8%' : '', '8%', formEApplicable ? '7%' : '', '7%', '9%', '9%', '9%'].filter(Boolean).map((width) => `<col style="width:${width}">`).join('')}
     </colgroup>
     <thead>
       <tr>
@@ -195,9 +185,9 @@ export function buildPrintHTML(entries, client, summary, dateLabel, awbFixedFee 
         <th class="num">PCS</th>
         <th class="num">Weight</th>
         <th class="num">Net Rate</th>
-        <th class="num">Clrg Chrgs</th>
+        ${clearingApplicable ? '<th class="num">Clrg Chrgs</th>' : ''}
         <th class="num">Other Chrgs</th>
-        <th class="num">Form E</th>
+        ${formEApplicable ? '<th class="num">Form E</th>' : ''}
         <th class="num">AWB Fee</th>
         <th class="num">Receivable</th>
         <th class="num">${isSales ? '' : 'Received'}</th>

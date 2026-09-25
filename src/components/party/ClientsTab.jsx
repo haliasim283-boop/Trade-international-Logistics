@@ -24,6 +24,7 @@ function Field({ label, required, children }) {
 const EMPTY = {
   name: '', contact_person: '', phone: '', city: '',
   address: '', credit_terms_days: 30, notes: '',
+  clearing_applicable: true, form_e_applicable: true,
 }
 
 export function ClientsTab() {
@@ -60,6 +61,8 @@ export function ClientsTab() {
       phone: r.phone ?? '', city: r.city ?? '',
       address: r.address ?? '', credit_terms_days: r.credit_terms_days ?? 30,
       notes: r.notes ?? '',
+      clearing_applicable: r.clearing_applicable !== false,
+      form_e_applicable: r.form_e_applicable !== false,
     })
     setModal({ mode: 'edit', row: r })
   }
@@ -250,6 +253,20 @@ export function ClientsTab() {
               <input className={INP} value={form.address}
                 onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))} />
             </Field>
+            <div className="grid grid-cols-2 gap-4">
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={form.clearing_applicable}
+                  onChange={(e) => setForm((p) => ({ ...p, clearing_applicable: e.target.checked }))}
+                  className="rounded border-gray-300 text-accent focus:ring-accent" />
+                Clearing charges applicable
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={form.form_e_applicable}
+                  onChange={(e) => setForm((p) => ({ ...p, form_e_applicable: e.target.checked }))}
+                  className="rounded border-gray-300 text-accent focus:ring-accent" />
+                Form E applicable
+              </label>
+            </div>
             <Field label="Notes">
               <textarea className={INP} rows={2} value={form.notes}
                 onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} />

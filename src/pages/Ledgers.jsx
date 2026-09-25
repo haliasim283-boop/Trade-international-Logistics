@@ -125,9 +125,16 @@ function buildEntries(shipments, payments, adjustments, opening) {
 
 // ── CSV export ────────────────────────────────────────────────────────────────
 
-function exportCSV(entries, clientName, isSalesReport = false, periodLabel = '', awbFixedFee = 0) {
+function exportCSV(entries, clientName, isSalesReport = false, periodLabel = '', awbFixedFee = 0, client = null) {
+  const clearingApplicable = client?.clearing_applicable !== false
+  const formEApplicable = client?.form_e_applicable !== false
   if (isSalesReport) {
-    const header = 'Date,AWB No.,ORG,DST,PCS,Weight (kg),Net Rate,Clearing Chrgs,Other Chrgs,Form E,AWB Fee,Receivable (PKR),Cumulative Total (PKR)'
+    const headers = ['Date', 'AWB No.', 'ORG', 'DST', 'PCS', 'Weight (kg)', 'Net Rate']
+    if (clearingApplicable) headers.push('Clearing Chrgs')
+    headers.push('Other Chrgs')
+    if (formEApplicable) headers.push('Form E')
+    headers.push('AWB Fee', 'Receivable (PKR)', 'Cumulative Total (PKR)')
+    const header = headers.join(',')
     const lines = entries.map((e) => [
       fmtDate(e.date),
       e.awb_number ?? '',
@@ -136,9 +143,9 @@ function exportCSV(entries, clientName, isSalesReport = false, periodLabel = '',
       e.pieces ?? '',
       e.weight > 0 ? Number(e.weight).toFixed(3) : '',
       e.net_rate > 0 ? e.net_rate : '',
-      e.clearing > 0 ? e.clearing : '',
+      ...(clearingApplicable ? [e.clearing > 0 ? e.clearing : ''] : []),
       e.other > 0 ? e.other : '',
-      e.form_e > 0 ? e.form_e : '',
+      ...(formEApplicable ? [e.form_e > 0 ? e.form_e : ''] : []),
       awbFixedFee > 0 ? awbFixedFee : '',
       e.receivable > 0 ? e.receivable : 0,
       e.salesTotal > 0 ? e.salesTotal : (e.receivable || 0),
@@ -147,7 +154,12 @@ function exportCSV(entries, clientName, isSalesReport = false, periodLabel = '',
     const totalPcs = entries.reduce((s, e) => s + (Number(e.pieces) || 0), 0)
     const totalWt  = entries.reduce((s, e) => s + (Number(e.weight) || 0), 0)
     const totalRec = entries.reduce((s, e) => s + (Number(e.receivable) || 0), 0)
-    const summaryRow = `"TOTAL","","","","${totalPcs}","${totalWt.toFixed(3)}","","","","","","${totalRec.toFixed(2)}","${totalRec.toFixed(2)}"`
+    const summaryValues = ['TOTAL', '', '', '', totalPcs, totalWt.toFixed(3), '']
+    if (clearingApplicable) summaryValues.push('')
+    summaryValues.push('')
+    if (formEApplicable) summaryValues.push('')
+    summaryValues.push('', totalRec.toFixed(2), totalRec.toFixed(2))
+    const summaryRow = summaryValues.map((v) => `"${v}"`).join(',')
 
     const blob = new Blob([[header, ...lines, summaryRow].join('\n')], { type: 'text/csv' })
     const url  = URL.createObjectURL(blob)
@@ -159,7 +171,12 @@ function exportCSV(entries, clientName, isSalesReport = false, periodLabel = '',
     return
   }
 
-  const header = 'Date,AWB No.,ORG,DST,PCS,Weight,Net Rate,Clearing Chrgs,Other Chrgs,Form E,Receivable,Received,Balance,Description'
+  const headers = ['Date', 'AWB No.', 'ORG', 'DST', 'PCS', 'Weight', 'Net Rate']
+  if (clearingApplicable) headers.push('Clearing Chrgs')
+  headers.push('Other Chrgs')
+  if (formEApplicable) headers.push('Form E')
+  headers.push('Receivable', 'Received', 'Balance', 'Description')
+  const header = headers.join(',')
   const lines = entries.map((e) => [
     fmtDate(e.date),
     e.awb_number ?? '',
@@ -168,9 +185,9 @@ function exportCSV(entries, clientName, isSalesReport = false, periodLabel = '',
     e.pieces ?? '',
     e.weight > 0 ? e.weight.toFixed(3) : '',
     e.net_rate > 0 ? e.net_rate : '',
-    e.clearing > 0 ? e.clearing : '',
+    ...(clearingApplicable ? [e.clearing > 0 ? e.clearing : ''] : []),
     e.other > 0 ? e.other : '',
-    e.form_e > 0 ? e.form_e : '',
+    ...(formEApplicable ? [e.form_e > 0 ? e.form_e : ''] : []),
     e.receivable > 0 ? e.receivable : '',
     e.received > 0 ? e.received : '',
     e.balance,
@@ -398,8 +415,8 @@ export default function Ledgers() {
         .eq('client_id', clientId)
         .maybeSingle(),
       supabase
-        .from('clients')
-        .select('id, name, contact_person, city')
+      .from('clients')
+      .select('id, name, contact_person, city, clearing_applicable, form_e_applicable')
         .eq('id', clientId)
         .single(),
     ])
@@ -467,6 +484,8 @@ export default function Ledgers() {
         }
       })
     }
+
+    if (viewMode === 'last24') return entries.slice(-24)
 
     if (!filterFrom && !filterTo) return entries
 
@@ -586,6 +605,8 @@ export default function Ledgers() {
   // ── Style helpers ─────────────────────────────────────────────────────────
 
   const INP_F = 'border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent bg-white'
+  const clearingApplicable = client?.clearing_applicable !== false
+  const formEApplicable = client?.form_e_applicable !== false
 
   const { role } = useAuth()
   const isDataEntry = role === 'Data Entry'
@@ -714,7 +735,7 @@ export default function Ledgers() {
               size="sm"
               className="sm:text-sm sm:px-4 sm:py-2"
               disabled={!client}
-              onClick={() => exportCSV(displayEntries, client?.name ?? 'client', viewMode === 'sales', selPeriodObj?.label, awbFixedFee)}
+              onClick={() => exportCSV(displayEntries, client?.name ?? 'client', viewMode === 'sales', selPeriodObj?.label, awbFixedFee, client)}
             >
               <Download className="w-4 h-4" />{viewMode === 'sales' ? 'Export Sales CSV' : 'Export CSV'}
             </Button>
@@ -774,6 +795,33 @@ export default function Ledgers() {
                     {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
                   </select>
 
+                  <label className="flex items-center gap-1.5 text-xs text-gray-500 whitespace-nowrap">
+                    From
+                    <input
+                      type="date"
+                      className={INP_F}
+                      value={filterFrom}
+                      onChange={(e) => {
+                        setFilterFrom(e.target.value)
+                        setSelPeriod('')
+                        setViewMode('sales')
+                      }}
+                    />
+                  </label>
+                  <label className="flex items-center gap-1.5 text-xs text-gray-500 whitespace-nowrap">
+                    To
+                    <input
+                      type="date"
+                      className={INP_F}
+                      value={filterTo}
+                      onChange={(e) => {
+                        setFilterTo(e.target.value)
+                        setSelPeriod('')
+                        setViewMode('sales')
+                      }}
+                    />
+                  </label>
+
                   {/* View Mode Toggle */}
                   <div className="inline-flex rounded-md shadow-sm border border-gray-300 overflow-hidden bg-white">
                     <button
@@ -806,6 +854,18 @@ export default function Ledgers() {
                       title="Full Statement: Displays running account ledger with payments and balance"
                     >
                       <span>Full Statement</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setFilterFrom(''); setFilterTo(''); setSelPeriod(''); setViewMode('last24') }}
+                      className={`px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 transition-colors border-l border-gray-300 ${
+                        viewMode === 'last24'
+                          ? 'bg-navy text-white'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                      title="Last page: Displays the last 24 shipments and payments"
+                    >
+                      <span>Last Page</span>
                     </button>
                   </div>
 
@@ -851,6 +911,8 @@ export default function Ledgers() {
               <div className="text-xs text-gray-500 mt-0.5">
                 {viewMode === 'sales'
                   ? `${selPeriodObj?.label || dateLabel} • ${salesSummary.shipmentCount} Shipment${salesSummary.shipmentCount !== 1 ? 's' : ''}`
+                  : viewMode === 'last24'
+                    ? `Last 24 ledger entries • ${client.city ? `${client.city}, Pakistan` : 'Pakistan'}`
                   : `${client.city ? `${client.city}, Pakistan` : 'Pakistan'}${client.contact_person ? ` • ${client.contact_person}` : ''}`}
               </div>
             </div>
@@ -929,9 +991,9 @@ export default function Ledgers() {
                           { label: 'PCS',              align: 'right' },
                           { label: 'Weight (kg)',      align: 'right' },
                           { label: 'Net Rate',         align: 'right' },
-                          { label: 'Clrg Chrgs',       align: 'right' },
+                          ...(clearingApplicable ? [{ label: 'Clrg Chrgs', align: 'right' }] : []),
                           { label: 'Other Chrgs',      align: 'right' },
-                          { label: 'Form E',           align: 'right' },
+                          ...(formEApplicable ? [{ label: 'Form E', align: 'right' }] : []),
                           { label: 'AWB Fee',          align: 'right' },
                           { label: 'Receivable (PKR)', align: 'right' },
                           { label: 'Cumulative Total', align: 'right' },
@@ -945,9 +1007,9 @@ export default function Ledgers() {
                           { label: 'PCS',          align: 'right' },
                           { label: 'Weight',       align: 'right' },
                           { label: 'Net Rate',     align: 'right' },
-                          { label: 'Clrg Chrgs',   align: 'right' },
+                          ...(clearingApplicable ? [{ label: 'Clrg Chrgs', align: 'right' }] : []),
                           { label: 'Other Chrgs',  align: 'right' },
-                          { label: 'Form E',       align: 'right' },
+                          ...(formEApplicable ? [{ label: 'Form E', align: 'right' }] : []),
                           { label: 'AWB Fee',      align: 'right' },
                           { label: 'Receivable',   align: 'right' },
                           { label: 'Received',     align: 'right' },
@@ -983,7 +1045,7 @@ export default function Ledgers() {
                             {fmtDate(e.date)}
                           </td>
                           <td
-                            colSpan={12}
+                            colSpan={12 - (clearingApplicable ? 0 : 1) - (formEApplicable ? 0 : 1)}
                             style={{ padding: '7px 10px', fontStyle: 'italic', color: '#6b7280', fontSize: 11 }}
                           >
                             {e.description}
@@ -1004,7 +1066,7 @@ export default function Ledgers() {
                             {fmtDate(e.date)}
                           </td>
                           <td
-                            colSpan={10}
+                            colSpan={10 - (clearingApplicable ? 0 : 1) - (formEApplicable ? 0 : 1)}
                             style={{ padding: '7px 10px', color: '#1d4ed8', fontSize: 11 }}
                           >
                             {e.description}
@@ -1045,7 +1107,7 @@ export default function Ledgers() {
                           <td style={{ padding: '7px 10px', whiteSpace: 'nowrap', color }}>
                             {fmtDate(e.date)}
                           </td>
-                          <td colSpan={10} style={{ padding: '7px 10px', color, fontSize: 11 }}>
+                          <td colSpan={10 - (clearingApplicable ? 0 : 1) - (formEApplicable ? 0 : 1)} style={{ padding: '7px 10px', color, fontSize: 11 }}>
                             {isCredit ? 'CREDIT: ' : 'DEBIT: '}{e.description}
                           </td>
                           <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color, whiteSpace: 'nowrap' }}>
@@ -1091,9 +1153,9 @@ export default function Ledgers() {
                         <td style={tdR}>{e.pieces ?? ''}</td>
                         <td style={tdR}>{Number(e.weight || 0).toFixed(3)}</td>
                         <td style={tdR}>{e.net_rate > 0 ? fmt(e.net_rate) : ''}</td>
-                        <td style={tdR}>{e.clearing > 0 ? fmt(e.clearing) : ''}</td>
+                        {clearingApplicable && <td style={tdR}>{e.clearing > 0 ? fmt(e.clearing) : ''}</td>}
                         <td style={tdR}>{e.other > 0 ? fmt(e.other) : ''}</td>
-                        <td style={tdR}>{e.form_e > 0 ? fmt(e.form_e) : ''}</td>
+                        {formEApplicable && <td style={tdR}>{e.form_e > 0 ? fmt(e.form_e) : ''}</td>}
                         <td style={tdR}>{fmt(awbFixedFee)}</td>
                         <td style={{ ...tdR, fontWeight: 600 }}>{fmt(e.receivable)}</td>
                         {viewMode === 'sales' ? (
@@ -1131,7 +1193,7 @@ export default function Ledgers() {
                 <>
                   <span className="text-gray-500">
                     {displayEntries.length} entr{displayEntries.length !== 1 ? 'ies' : 'y'}
-                    {(filterFrom || filterTo) ? ' (filtered)' : ''}
+                    {viewMode === 'last24' ? ' (last 24)' : (filterFrom || filterTo) ? ' (filtered)' : ''}
                   </span>
                   <span className={`font-mono font-bold text-base ${summary.balance > 0 ? 'text-danger' : 'text-success'}`}>
                     Balance: PKR {fmt(summary.balance)}
