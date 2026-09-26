@@ -11,7 +11,7 @@ import { Spinner } from '../components/ui/Spinner'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { CassPaymentModal } from '../components/cass/CassPaymentModal'
 import { CassAdjustmentModal } from '../components/cass/CassAdjustmentModal'
-import { printCassReport } from '../components/cass/CassPrintView'
+import { printCassAllAirlinesReport, printCassReport } from '../components/cass/CassPrintView'
 import { ManageAirlinesModal } from '../components/cass/ManageAirlinesModal'
 
 // pdf.js is ~1.4 MB — load it only when the converter is actually opened
@@ -30,6 +30,7 @@ const CassExcelImportModal = lazy(() =>
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+const ALL_AIRLINES = 'all'
 
 function r2(n) { return Math.round(Number(n || 0) * 100) / 100 }
 
@@ -119,6 +120,33 @@ function calcRow(s) {
   return { pwc, oc_airline, net_amount, pluss_dipp, diff, profit }
 }
 
+function calculateRecap(rows, adjustments, payments, status = 'Pending') {
+  const totalWeight    = rows.reduce((s, r) => s + Number(r.chargeable_weight || 0), 0)
+  const totalPWC       = r2(rows.reduce((s, r) => s + r.pwc, 0))
+  const totalOCAirline = r2(rows.reduce((s, r) => s + r.oc_airline, 0))
+  const totalNet       = r2(rows.reduce((s, r) => s + r.net_amount, 0))
+  const awbCount       = rows.length
+  const totalAdj       = r2(adjustments.reduce((s, a) => s + Number(a.amount || 0), 0))
+  const dippRows       = rows.filter((r) => r.pluss_dipp !== null)
+  const totalPlussDipp = r2(dippRows.reduce((s, r) => s + r.pluss_dipp, 0))
+  const netDueExport   = r2(totalPlussDipp + totalAdj)
+  const grandTotal     = netDueExport
+  const totalPaid      = r2(payments.reduce((s, p) => s + Number(p.amount || 0), 0))
+  const balanceDue     = r2(grandTotal - totalPaid)
+  const dippCount      = dippRows.length
+  const totalProfit    = r2(dippRows.reduce((s, r) => s + r.profit, 0))
+  const totalFreight   = r2(dippRows.reduce((s, r) => s + Number(r.freight_amount || 0), 0))
+  const totalDiff      = r2(rows.reduce((s, r) => s + (r.diff ?? 0), 0))
+
+  return {
+    totalWeight, totalPWC, totalOCAirline,
+    totalNet, awbCount, totalAdj,
+    netDueExport, grandTotal, totalPaid, balanceDue,
+    dippCount, totalPlussDipp, totalProfit, totalFreight, totalDiff,
+    status,
+  }
+}
+
 const STATUS_CONFIG = {
   Pending: { color: 'bg-amber-100 text-amber-800', icon: Clock,        label: 'Pending' },
   Billed:  { color: 'bg-blue-100 text-blue-800',   icon: AlertCircle,  label: 'Billed' },
@@ -200,6 +228,7 @@ export default function CassReports() {
   const [adjustments, setAdjustments] = useState([])
   const [cassperiod,  setCassperiod]  = useState(null)   // cass_periods row
   const [payments,    setPayments]    = useState([])
+  const [allReports,  setAllReports]  = useState([])
   const [settings,    setSettings]    = useState(null)
 
   // UI
@@ -247,8 +276,93 @@ export default function CassReports() {
 
   // ── Load data when airline+period change ────────────────────────────────────
   const loadData = useCallback(async () => {
-    if (!supabase || !selectedAirlineId || !period) return
+    const allAirlinesMode = selectedAirlineId === ALL_AIRLINES
+    if (!supabase || (!selectedAirlineId && !allAirlinesMode) || !period) return
     setLoading(true); setError(null)
+
+    if (allAirlinesMode) {
+      const [shipmentsResult, periodsResult] = await Promise.all([
+        supabase.from('shipments')
+          .select('id,airline_id,flight_date,awb_number,origin,destination,pieces,chargeable_weight,awb_upload_charges,other_charges_due_airline,amendment_charges,cass_airline_rate,pkr_exchange_rate,net_rate,freight_amount,cass_pluss_dipp,airlines(id,name,iata_prefix,cass_commission_usd_per_kg),clients(name)')
+          .gte('flight_date', period.start)
+          .lte('flight_date', period.end)
+          .order('flight_date', { ascending: true }),
+        supabase.from('cass_periods')
+          .select('*')
+          .eq('period_start', period.start)
+          .eq('period_end', period.end),
+      ])
+
+      if (shipmentsResult.error || periodsResult.error) {
+        setError((shipmentsResult.error || periodsResult.error).message)
+        setLoading(false)
+        return
+      }
+
+      const periodRows = periodsResult.data ?? []
+      const periodIds = periodRows.map((p) => p.id)
+      let adjustmentRows = []
+      let paymentRows = []
+      if (periodIds.length > 0) {
+        const [adjustmentsResult, paymentsResult] = await Promise.all([
+          supabase.from('cass_adjustments').select('*').in('cass_period_id', periodIds).order('created_at'),
+          supabase.from('cass_payments').select('*').in('cass_period_id', periodIds).order('payment_date'),
+        ])
+        if (adjustmentsResult.error || paymentsResult.error) {
+          setError((adjustmentsResult.error || paymentsResult.error).message)
+          setLoading(false)
+          return
+        }
+        adjustmentRows = adjustmentsResult.data ?? []
+        paymentRows = paymentsResult.data ?? []
+      }
+
+      const periodByAirline = new Map(periodRows.map((p) => [p.airline_id, p]))
+      const adjustmentsByPeriod = new Map()
+      const paymentsByPeriod = new Map()
+      for (const adjustment of adjustmentRows) {
+        const list = adjustmentsByPeriod.get(adjustment.cass_period_id) ?? []
+        list.push(adjustment)
+        adjustmentsByPeriod.set(adjustment.cass_period_id, list)
+      }
+      for (const payment of paymentRows) {
+        const list = paymentsByPeriod.get(payment.cass_period_id) ?? []
+        list.push(payment)
+        paymentsByPeriod.set(payment.cass_period_id, list)
+      }
+
+      const airlineById = new Map(airlines.map((a) => [a.id, a]))
+      const shipmentsByAirline = new Map()
+      for (const shipment of shipmentsResult.data ?? []) {
+        const relatedAirline = shipment.airlines
+        if (!relatedAirline || !shipment.airline_id) continue
+        airlineById.set(relatedAirline.id, relatedAirline)
+        const list = shipmentsByAirline.get(shipment.airline_id) ?? []
+        list.push({ ...shipment, ...calcRow(shipment) })
+        shipmentsByAirline.set(shipment.airline_id, list)
+      }
+
+      const reports = Array.from(airlineById, ([airlineId, reportAirline]) => {
+        const reportPeriod = periodByAirline.get(airlineId)
+        const reportAdjustments = reportPeriod ? (adjustmentsByPeriod.get(reportPeriod.id) ?? []) : []
+        const reportPayments = reportPeriod ? (paymentsByPeriod.get(reportPeriod.id) ?? []) : []
+        const reportRows = shipmentsByAirline.get(airlineId) ?? []
+        return {
+          airline: reportAirline,
+          rows: reportRows,
+          adjustments: reportAdjustments,
+          payments: reportPayments,
+          recap: calculateRecap(reportRows, reportAdjustments, reportPayments, reportPeriod?.status ?? 'Pending'),
+        }
+      }).sort((a, b) => a.airline.name.localeCompare(b.airline.name))
+
+      setAllReports(reports)
+      setCassperiod(null)
+      setLoading(false)
+      return
+    }
+
+    setAllReports([])
 
     // 1. Ensure cass_period row exists
     let pRow = null
@@ -308,7 +422,7 @@ export default function CassReports() {
     setAdjustments(aData ?? [])
     setPayments(pyData ?? [])
     setLoading(false)
-  }, [selectedAirlineId, period])
+  }, [selectedAirlineId, period, airlines])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -320,35 +434,10 @@ export default function CassReports() {
 
   // ── Recapitulation ──────────────────────────────────────────────────────────
   const recap = useMemo(() => {
-    const totalWeight    = rows.reduce((s, r) => s + Number(r.chargeable_weight || 0), 0)
-    const totalPWC       = r2(rows.reduce((s, r) => s + r.pwc, 0))
-    const totalOCAirline = r2(rows.reduce((s, r) => s + r.oc_airline, 0))
-    const totalNet       = r2(rows.reduce((s, r) => s + r.net_amount, 0))
-    const awbCount       = rows.length
-    const totalAdj       = r2(adjustments.reduce((s, a) => s + Number(a.amount || 0), 0))
-    
-    // Imported CASS figures — calculate net due based on Pluss Dipp (what user pays airline)
-    const dippRows        = rows.filter((r) => r.pluss_dipp !== null)
-    const totalPlussDipp  = r2(dippRows.reduce((s, r) => s + r.pluss_dipp, 0))
-    const netDueExport   = r2(totalPlussDipp + totalAdj)
-    const grandTotal     = netDueExport
-    const totalPaid      = r2(payments.reduce((s, p) => s + Number(p.amount || 0), 0))
-    const balanceDue     = r2(grandTotal - totalPaid)
-
-    // Additional CASS metrics
-    const dippCount       = dippRows.length
-    const totalProfit     = r2(dippRows.reduce((s, r) => s + r.profit, 0))
-    const totalFreight    = r2(dippRows.reduce((s, r) => s + Number(r.freight_amount || 0), 0))
-    const totalDiff       = r2(rows.reduce((s, r) => s + (r.diff ?? 0), 0))
-
-    return {
-      totalWeight, totalPWC, totalOCAirline,
-      totalNet, awbCount, totalAdj,
-      netDueExport, grandTotal, totalPaid, balanceDue,
-      dippCount, totalPlussDipp, totalProfit, totalFreight, totalDiff,
-      status: cassperiod?.status ?? 'Pending',
-    }
+    return calculateRecap(rows, adjustments, payments, cassperiod?.status ?? 'Pending')
   }, [rows, adjustments, payments, cassperiod])
+
+  const allAirlinesMode = selectedAirlineId === ALL_AIRLINES
 
   // ── Status change ───────────────────────────────────────────────────────────
   async function handleStatusChange(newStatus) {
@@ -393,6 +482,10 @@ export default function CassReports() {
 
   // ── Print ───────────────────────────────────────────────────────────────────
   function handlePrint() {
+    if (allAirlinesMode) {
+      printCassAllAirlinesReport({ reports: allReports, period, settings })
+      return
+    }
     printCassReport({ airline, period, rows, recap, adjustments, payments, settings })
   }
 
@@ -416,16 +509,20 @@ export default function CassReports() {
           <p className="text-sm text-gray-500 mt-0.5">Fortnightly CASS billing reports per airline</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button onClick={() => setShowExcelImport(true)} variant="secondary">
-            <Upload className="w-4 h-4" /> Import CASS Excel
-          </Button>
-          <Button onClick={() => setShowPdfConvert(true)} variant="secondary">
-            <FileSpreadsheet className="w-4 h-4" /> CASS PDF → Excel
-          </Button>
-          <Button onClick={() => setShowManageAirlines(true)} variant="secondary">
-            <Plus className="w-4 h-4" /> Manage Airlines
-          </Button>
-          {airline && period && (
+          {!allAirlinesMode && (
+            <>
+              <Button onClick={() => setShowExcelImport(true)} variant="secondary">
+                <Upload className="w-4 h-4" /> Import CASS Excel
+              </Button>
+              <Button onClick={() => setShowPdfConvert(true)} variant="secondary">
+                <FileSpreadsheet className="w-4 h-4" /> CASS PDF → Excel
+              </Button>
+              <Button onClick={() => setShowManageAirlines(true)} variant="secondary">
+                <Plus className="w-4 h-4" /> Manage Airlines
+              </Button>
+            </>
+          )}
+          {(airline || allAirlinesMode) && period && (
             <Button onClick={handlePrint} variant="secondary">
               <Printer className="w-4 h-4" /> Print / PDF
             </Button>
@@ -446,6 +543,7 @@ export default function CassReports() {
                   onChange={(e) => setSelectedAirlineId(e.target.value)}
                 >
                   <option value="">— Select Airline —</option>
+                  <option value={ALL_AIRLINES}>All Airlines</option>
                   {airlines.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name} ({a.iata_prefix})
@@ -472,7 +570,7 @@ export default function CassReports() {
               </div>
             </div>
 
-            {cassperiod && (
+            {cassperiod && !allAirlinesMode && (
               <div className="flex items-center gap-2 pb-0.5">
                 <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${statusCfg.color}`}>
                   <StatusIcon className="w-3.5 h-3.5" />
@@ -520,7 +618,15 @@ export default function CassReports() {
         </CardBody>
       </Card>
 
-      {!selectedAirlineId ? (
+      {allAirlinesMode ? (
+        loading ? (
+          <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+        ) : error ? (
+          <div className="py-8 text-center text-danger text-sm">{error}</div>
+        ) : (
+          <AllAirlinesReportView reports={allReports} period={period} />
+        )
+      ) : !selectedAirlineId ? (
         <div className="text-center py-20 text-gray-400">
           <p className="text-base">Select an airline above to view its CASS report.</p>
         </div>
@@ -982,6 +1088,112 @@ export default function CassReports() {
         </Suspense>
       )}
     </div>
+  )
+}
+
+function AllAirlinesReportView({ reports, period }) {
+  const allRows = reports.flatMap((report) => report.rows.map((row, index) => ({
+    ...row,
+    airline: report.airline,
+    sequence: index + 1,
+  })))
+  const totalAwbs = reports.reduce((sum, report) => sum + report.recap.awbCount, 0)
+
+  return (
+    <>
+      <div className="bg-navy text-white rounded-xl px-6 py-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <p className="text-xs uppercase tracking-widest text-blue-200 mb-0.5">All Airlines CASS Report</p>
+            <h2 className="text-lg font-bold">{period?.label}</h2>
+            <p className="text-sm text-blue-200 mt-0.5">
+              Period: {fmtDate(period?.start)} – {fmtDate(period?.end)}
+              &nbsp;|&nbsp; {reports.length} airlines
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-blue-200">AWBs in Period</p>
+            <p className="text-3xl font-bold font-mono">{totalAwbs}</p>
+          </div>
+        </div>
+      </div>
+
+      <Card>
+        <div className="px-4 pt-4 pb-2">
+          <h3 className="font-semibold text-navy text-sm uppercase tracking-wide">Airline Summary</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-collapse min-w-[1100px]">
+            <thead className="bg-navy text-white">
+              <tr>
+                {['Airline', 'Prefix', 'AWBs', 'Weight (KGS)', 'Adjustments', 'Total Payable', 'Total Paid', 'Balance Due', 'Status'].map((heading) => (
+                  <th key={heading} className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide">{heading}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {reports.map(({ airline: reportAirline, recap: reportRecap }) => (
+                <tr key={reportAirline.id}>
+                  <td className="px-3 py-2 font-medium text-navy">{reportAirline.name}</td>
+                  <td className="px-3 py-2 text-gray-600">{reportAirline.iata_prefix || '—'}</td>
+                  <td className="px-3 py-2 text-right font-mono">{reportRecap.awbCount}</td>
+                  <td className="px-3 py-2 text-right font-mono">{Number(reportRecap.totalWeight).toFixed(3)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmt(reportRecap.totalAdj)}</td>
+                  <td className="px-3 py-2 text-right font-mono font-semibold">{fmt(reportRecap.grandTotal)}</td>
+                  <td className="px-3 py-2 text-right font-mono text-green-700">{fmt(reportRecap.totalPaid)}</td>
+                  <td className={`px-3 py-2 text-right font-mono font-semibold ${reportRecap.balanceDue > 0 ? 'text-danger' : 'text-green-700'}`}>
+                    {fmt(reportRecap.balanceDue)}
+                  </td>
+                  <td className="px-3 py-2 text-gray-600">{reportRecap.status}</td>
+                </tr>
+              ))}
+              {reports.length === 0 && (
+                <tr><td colSpan={9} className="px-3 py-10 text-center text-gray-400">No airlines found.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+          <h3 className="font-semibold text-navy text-sm uppercase tracking-wide">Per-AWB Detail</h3>
+          <span className="text-xs text-gray-400">{totalAwbs} shipment{totalAwbs !== 1 ? 's' : ''}</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-collapse min-w-[1500px]">
+            <thead className="bg-navy text-white">
+              <tr>
+                {['Airline', 'SN', 'AWB No.', 'ORG', 'DST', 'Weight (KGS)', 'Minus Other', 'Pluss Dipp', 'OC Due Airline', 'Net Amount', 'Diff', 'Profit'].map((heading) => (
+                  <th key={heading} className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide">{heading}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {allRows.map((row) => (
+                <tr key={row.id} className="hover:bg-gray-50">
+                  <td className="px-3 py-2 font-medium text-navy">{row.airline.name}</td>
+                  <td className="px-3 py-2 text-gray-500 text-xs">{row.sequence}</td>
+                  <td className="px-3 py-2 font-mono text-xs font-medium text-navy">{row.awb_number}</td>
+                  <td className="px-3 py-2 text-gray-700">{row.origin}</td>
+                  <td className="px-3 py-2 text-gray-700">{row.destination}</td>
+                  <td className="px-3 py-2 text-right font-mono">{Number(row.chargeable_weight || 0).toFixed(3)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmt(row.pwc)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{signed(row.pluss_dipp)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{row.oc_airline > 0 ? fmt(row.oc_airline) : '—'}</td>
+                  <td className="px-3 py-2 text-right font-mono font-semibold">{fmt(row.net_amount)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{signed(row.diff)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{signed(row.profit)}</td>
+                </tr>
+              ))}
+              {allRows.length === 0 && (
+                <tr><td colSpan={12} className="px-3 py-10 text-center text-gray-400">No shipments found for this billing period.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </>
   )
 }
 

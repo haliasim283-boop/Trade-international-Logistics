@@ -48,6 +48,21 @@ function currentFortnight() {
   return { from: `${y}-${ms}-16`, to: `${y}-${ms}-${String(last).padStart(2, '0')}` }
 }
 
+function previousFortnight() {
+  const now = new Date()
+  const y = now.getFullYear(), mn = now.getMonth(), day = now.getDate()
+  if (day > 15) {
+    const ms = String(mn + 1).padStart(2, '0')
+    return { from: `${y}-${ms}-01`, to: `${y}-${ms}-15` }
+  }
+  const previousMonth = new Date(y, mn - 1, 1)
+  const previousYear = previousMonth.getFullYear()
+  const previousMonthIndex = previousMonth.getMonth()
+  const ms = String(previousMonthIndex + 1).padStart(2, '0')
+  const last = new Date(previousYear, previousMonthIndex + 1, 0).getDate()
+  return { from: `${previousYear}-${ms}-16`, to: `${previousYear}-${ms}-${String(last).padStart(2, '0')}` }
+}
+
 function currentMonth() {
   const now = new Date()
   const y = now.getFullYear(), ms = String(now.getMonth() + 1).padStart(2, '0')
@@ -243,6 +258,7 @@ export default function Dashboard() {
   const [error,           setError]           = useState(null)
 
   const ft = currentFortnight()
+  const cassFt = previousFortnight()
   const mn = currentMonth()
 
   const load = useCallback(async () => {
@@ -255,8 +271,8 @@ export default function Dashboard() {
         { data: openBals,    error: e3 },
         { data: formEPmts,   error: e4 },
         { data: clearPmts,   error: e5 },
-        { data: cassShipsFt, error: e6 },
-        { data: cassPmtsFt,  error: e7 },
+        { data: cassShipsFt,   error: e6 },
+        { data: cassPeriodsFt, error: e7 },
         { data: clients,     error: e8 },
         { data: mnExpenses,  error: e9 },
         { data: mnIncomeCp,  error: e10 },
@@ -275,13 +291,14 @@ export default function Dashboard() {
         fetchAllRows(() => supabase.from('form_e_payments').select('amount')),
         // All clearing agent payments
         fetchAllRows(() => supabase.from('clearing_agent_payments').select('amount')),
-        // Current fortnight shipments (for CASS estimate)
+        // Previous fortnight shipments; use the same imported CASS value as the report
         supabase.from('shipments')
-          .select('chargeable_weight,pkr_exchange_rate,airlines(cass_commission_usd_per_kg)')
-          .gte('flight_date', ft.from).lte('flight_date', ft.to),
-        // CASS payments this fortnight
-        supabase.from('cass_payments')
-          .select('amount').gte('payment_date', ft.from).lte('payment_date', ft.to),
+          .select('cass_pluss_dipp')
+          .gte('flight_date', cassFt.from).lte('flight_date', cassFt.to),
+        // CASS payment and adjustment rows are linked to their billing period
+        supabase.from('cass_periods')
+          .select('id').gte('period_start', cassFt.from).lte('period_end', cassFt.to)
+          .eq('period_start', cassFt.from).eq('period_end', cassFt.to),
         // All active clients (for overdue computation)
         fetchAllRows(() => supabase.from('clients').select('id,name,credit_terms_days').eq('is_active', true)),
         // Current month expenses
@@ -302,21 +319,34 @@ export default function Dashboard() {
         throw e1||e2||e3||e4||e5||e6||e7||e8||e9||e10||e11||e12
       }
 
+      const cassPeriodIds = (cassPeriodsFt || []).map((p) => p.id)
+      let cassPmtsFt = []
+      let cassAdjustmentsFt = []
+      if (cassPeriodIds.length > 0) {
+        const [cassPaymentsResult, cassAdjustmentsResult] = await Promise.all([
+          supabase.from('cass_payments').select('amount').in('cass_period_id', cassPeriodIds),
+          supabase.from('cass_adjustments').select('amount').in('cass_period_id', cassPeriodIds),
+        ])
+        if (cassPaymentsResult.error || cassAdjustmentsResult.error) {
+          throw cassPaymentsResult.error || cassAdjustmentsResult.error
+        }
+        cassPmtsFt = cassPaymentsResult.data ?? []
+        cassAdjustmentsFt = cassAdjustmentsResult.data ?? []
+      }
+
       // ── KPI 1: Outstanding receivables ──────────────────────────────────────
       const openBalsTotal = r2((openBals || []).reduce((s, r) => s + Number(r.amount), 0))
       const totalRecv     = r2((allShips || []).reduce((s, r) => s + Number(r.total_receivable), 0))
       const totalPaid     = r2((allPayments || []).reduce((s, r) => s + Number(r.amount), 0))
       const outstandingReceivables = r2(openBalsTotal + totalRecv - totalPaid)
 
-      // ── KPI 2: CASS payable (current fortnight estimate) ───────────────────
-      const cassGross = r2((cassShipsFt || []).reduce((s, r) => {
-        const w    = Number(r.chargeable_weight || 0)
-        const rate = Number(r.pkr_exchange_rate || 1)
-        const comm = w * Number(r.airlines?.cass_commission_usd_per_kg || 0) * rate
-        return s + comm
-      }, 0))
+      // ── KPI 2: CASS payable for the previous fortnight ──────────────────────
+      const cassGross = r2((cassShipsFt || []).reduce(
+        (s, r) => s + Number(r.cass_pluss_dipp || 0), 0
+      ))
       const cassPaidFt = r2((cassPmtsFt || []).reduce((s, r) => s + Number(r.amount), 0))
-      const cassPayable = Math.max(0, r2(cassGross - cassPaidFt))
+      const cassAdjustments = r2((cassAdjustmentsFt || []).reduce((s, r) => s + Number(r.amount), 0))
+      const cassPayable = Math.max(0, r2(cassGross + cassAdjustments - cassPaidFt))
 
       // ── KPI 3: Form E payable ───────────────────────────────────────────────
       const formETotal  = r2((allShips || []).reduce(
@@ -482,7 +512,7 @@ export default function Dashboard() {
             <ModernKPICard
               title="CASS Payable"
               value={kpis?.cassPayable ?? 0}
-              sub={`Fortnight ${fmtDate(ft.from)} – ${fmtDate(ft.to)}`}
+              sub={`Fortnight ${fmtDate(cassFt.from)} – ${fmtDate(cassFt.to)}`}
               icon={Plane}
               theme="amber"
               onClick={() => navigate('/cass')}
@@ -789,14 +819,14 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* ── Upcoming CASS Period Card ── */}
+              {/* ── Previous CASS Period Card ── */}
               <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <div className="p-1.5 bg-amber-50 text-amber-600 rounded-lg">
                       <Plane className="w-4 h-4" />
                     </div>
-                    <h2 className="font-bold text-navy text-sm uppercase tracking-wide">Current CASS Period</h2>
+                    <h2 className="font-bold text-navy text-sm uppercase tracking-wide">Previous CASS Period</h2>
                   </div>
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
                     Fortnight Cycle
@@ -805,9 +835,9 @@ export default function Dashboard() {
 
                 <div className="mt-3.5 space-y-3">
                   <div className="flex items-center justify-between text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                    <span className="text-slate-400">Active Window</span>
+                    <span className="text-slate-400">Shipment Window</span>
                     <span className="font-semibold text-slate-900">
-                      {fmtDate(ft.from)} – {fmtDate(ft.to)}
+                      {fmtDate(cassFt.from)} – {fmtDate(cassFt.to)}
                     </span>
                   </div>
 
