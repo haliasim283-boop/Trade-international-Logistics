@@ -48,7 +48,7 @@ const PAGE_SIZE = 50   // rows shown per page (first batch fetched immediately)
 const BG_BATCH  = 500  // batch size for background prefetch
 
 // Build a base Supabase query with all active filters applied (no range).
-function buildShipmentsQuery({ search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder = 'desc' }, { count } = {}) {
+function buildShipmentsQuery({ search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, sortDateOrder = 'desc' }, { count } = {}) {
   let query = supabase
     .from('shipments')
     .select(SHIPMENT_SELECT, count ? { count: 'exact' } : undefined)
@@ -61,8 +61,6 @@ function buildShipmentsQuery({ search, filterAirline, filterClient, filterStatus
   if (filterOrigin)  query = query.eq('origin', filterOrigin)
   if (filterFormE === 'none') query = query.is('form_e_supplier_id', null)
   else if (filterFormE) query = query.eq('form_e_supplier_id', filterFormE)
-  if (filterFrom) query = query.gte('flight_date', filterFrom)
-  if (filterTo)   query = query.lte('flight_date', filterTo)
   if (search)     query = query.ilike('awb_number', `%${search}%`)
 
   return query
@@ -307,8 +305,7 @@ export default function Shipments() {
   const [filterStatus,  setFilterStatus]  = useState(location.state?.status ?? '')
   const [filterOrigin,  setFilterOrigin]  = useState('')
   const [filterFormE,   setFilterFormE]   = useState('')   // '' = all, 'none' = no supplier
-  const [filterFrom,    setFilterFrom]    = useState('')
-  const [filterTo,      setFilterTo]      = useState('')
+  const [selectedFortnightKeys, setSelectedFortnightKeys] = useState([])
   const [sortDateOrder, setSortDateOrder] = useState('desc')
 
   // ── Pagination state ──
@@ -325,8 +322,8 @@ export default function Shipments() {
 
   const filters = useMemo(() => ({
     search, filterAirline, filterClient, filterStatus,
-    filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder,
-  }), [search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder])
+    filterOrigin, filterFormE, sortDateOrder,
+  }), [search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, sortDateOrder])
 
   const loadAll = useCallback(async () => {
     if (!supabase) { setLoading(false); setError('Supabase not configured'); return }
@@ -430,8 +427,12 @@ export default function Shipments() {
       if (filterOrigin  && s.origin     !== filterOrigin) return false
       if (filterFormE === 'none') { if (s.form_e_supplier_id) return false }
       else if (filterFormE && s.form_e_supplier_id !== filterFormE) return false
-      if (filterFrom    && s.flight_date < filterFrom) return false
-      if (filterTo      && s.flight_date > filterTo)   return false
+      if (selectedFortnightKeys.length > 0) {
+        const [year, month, day] = s.flight_date.split('-').map(Number)
+        const period = day <= 15 ? 1 : 2
+        const fortnightKey = `${year}-${String(month).padStart(2, '0')}-${period}`
+        if (!selectedFortnightKeys.includes(fortnightKey)) return false
+      }
       return true
     })
 
@@ -445,10 +446,10 @@ export default function Shipments() {
       }
       return sortDateOrder === 'asc' ? da.localeCompare(db) : db.localeCompare(da)
     })
-  }, [shipments, search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder])
+  }, [shipments, search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, selectedFortnightKeys, sortDateOrder])
 
   // Reset to page 1 whenever filters/sort change
-  useEffect(() => { setPage(1) }, [search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, filterFrom, filterTo, sortDateOrder])
+  useEffect(() => { setPage(1) }, [search, filterAirline, filterClient, filterStatus, filterOrigin, filterFormE, selectedFortnightKeys, sortDateOrder])
 
   // Client-side pagination over the fully-filtered list.
   const totalPages   = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
@@ -482,10 +483,10 @@ export default function Shipments() {
     return result.sort((a, b) => b.key.localeCompare(a.key))
   }, [shipments])
 
-  function applyFortnight(e) {
-    const fn = fortnights.find((f) => f.key === e.target.value)
-    if (fn) { setFilterFrom(fn.from); setFilterTo(fn.to) }
-    else     { setFilterFrom('');    setFilterTo('') }
+  function toggleFortnight(key) {
+    setSelectedFortnightKeys((selected) => selected.includes(key)
+      ? selected.filter((selectedKey) => selectedKey !== key)
+      : [...selected, key])
   }
 
   // ── Summary totals ───────────────────────────────────────────────────────
@@ -653,12 +654,12 @@ export default function Shipments() {
 
   // ── Filter helpers ───────────────────────────────────────────────────────
 
-  const hasFilters = search || filterAirline || filterClient || filterStatus || filterOrigin || filterFormE || filterFrom || filterTo || sortDateOrder !== 'desc'
+  const hasFilters = search || filterAirline || filterClient || filterStatus || filterOrigin || filterFormE || selectedFortnightKeys.length > 0 || sortDateOrder !== 'desc'
   const INP_F = 'shrink-0 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent bg-white'
 
   function clearFilters() {
     setSearch(''); setFilterAirline(''); setFilterClient('')
-    setFilterStatus(''); setFilterOrigin(''); setFilterFormE(''); setFilterFrom(''); setFilterTo('')
+    setFilterStatus(''); setFilterOrigin(''); setFilterFormE(''); setSelectedFortnightKeys([])
     setSortDateOrder('desc')
   }
 
@@ -733,12 +734,42 @@ export default function Shipments() {
                 <option value="asc">Sort by Date: Ascending</option>
               </select>
 
-              {/* Fortnight shortcut */}
-              <select name="fortnight" className={INP_F} onChange={applyFortnight}
-                value={fortnights.find((f) => f.from === filterFrom && f.to === filterTo)?.key ?? ''}>
-                <option value="">Fortnight…</option>
-                {fortnights.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
-              </select>
+              {/* Fortnight multi-select */}
+              <details className="relative shrink-0">
+                <summary className={`${INP_F} cursor-pointer list-none select-none min-w-[170px]`}>
+                  {selectedFortnightKeys.length > 0
+                    ? `${selectedFortnightKeys.length} fortnight${selectedFortnightKeys.length === 1 ? '' : 's'} selected`
+                    : 'All fortnights'}
+                </summary>
+                <div className="absolute left-0 top-full z-30 mt-1 w-80 max-h-80 overflow-y-auto rounded-md border border-gray-200 bg-white p-2 shadow-lg">
+                  <div className="flex items-center justify-between border-b border-gray-100 px-2 pb-2 mb-1">
+                    <span className="text-xs font-semibold text-gray-500">Select fortnights</span>
+                    {selectedFortnightKeys.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedFortnightKeys([])}
+                        className="text-xs font-medium text-accent hover:underline"
+                      >
+                        Clear selection
+                      </button>
+                    )}
+                  </div>
+                  {fortnights.map((fortnight) => (
+                    <label key={fortnight.key} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={selectedFortnightKeys.includes(fortnight.key)}
+                        onChange={() => toggleFortnight(fortnight.key)}
+                        className="accent-blue-700"
+                      />
+                      <span>{fortnight.label}</span>
+                    </label>
+                  ))}
+                  {fortnights.length === 0 && (
+                    <p className="px-2 py-3 text-xs text-gray-400">No shipment fortnights available.</p>
+                  )}
+                </div>
+              </details>
 
 
               <select name="filter_airline" className={INP_F} value={filterAirline} onChange={(e) => setFilterAirline(e.target.value)}>
