@@ -61,48 +61,28 @@ export function AuthProvider({ children }) {
       return
     }
 
-    // supabase-js can occasionally hang on the very first getSession() call
-    // after a cold page load (stale internal lock). Fail open after a
-    // timeout so the app doesn't spin forever — the user lands on the
-    // login page and can sign in instead of being stuck. Failing open is safe
-    // here only because it grants no access: with no user, the guards send
-    // you to /login.
+    // Keep a fallback in case Supabase never emits its initial auth event.
+    // Failing open is safe here only because it grants no access: with no
+    // user, the guards send you to /login.
     let settled = false
     const timeoutId = setTimeout(() => {
       if (!settled) setLoading(false)
     }, 10000)
 
-    // Check existing session on mount
-    supabase.auth.getSession()
-      .then(({ data: { session } }) => {
-        settled = true
-        clearTimeout(timeoutId)
-        setUser(session?.user ?? null)
-        if (session?.user) {
-          fetchProfile(session.user.id)
-        } else {
-          clearProfile()
-          setLoading(false)
-        }
-      })
-      .catch(err => {
-        // A rejected session lookup used to go unhandled and leave `loading`
-        // pinned until the timer fired.
-        settled = true
-        clearTimeout(timeoutId)
-        console.error('Failed to restore session:', err?.message ?? err)
-        setLoading(false)
-      })
-
-    // Subscribe to auth state changes
+    // The initial auth event also restores an existing session. Keep this as
+    // the single bootstrap path instead of racing it against getSession().
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      (_event, session) => {
+        settled = true
+        clearTimeout(timeoutId)
         setUser(session?.user ?? null)
         if (session?.user) {
           // Also fires on TOKEN_REFRESHED. That matters: the bootstrap fetch
           // may have gone out carrying an expired JWT, and re-fetching once
           // the new token lands is what lets a failed load self-heal.
-          await fetchProfile(session.user.id)
+          // Supabase invokes auth listeners while holding its auth lock. Defer
+          // the profile request until after this synchronous callback returns.
+          setTimeout(() => { void fetchProfile(session.user.id) }, 0)
         } else {
           clearProfile()
           setLoading(false)
