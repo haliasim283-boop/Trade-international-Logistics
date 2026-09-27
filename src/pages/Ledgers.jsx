@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Download, Plus, Trash2, Pencil, Upload } from 'lucide-react'
+import { Download, FileSpreadsheet, Plus, Trash2, Pencil, Upload } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { Card, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -62,6 +62,7 @@ function buildEntries(shipments, payments, adjustments, opening) {
       weight:      Number(s.chargeable_weight || 0),
       net_rate:    Number(s.net_rate || 0),
       clearing:    Number(s.clearing_charges || 0) + Number(s.idc_tax || 0),
+      idc_tax:     Number(s.idc_tax || 0),
       other:       Number(s.other_charges_due_airline || 0) + Number(s.awb_upload_charges || 0) + Number(s.airlines?.bta_rate_per_awb || 0) + Number(s.amendment_charges || 0),
       form_e:      Number(s.form_e_amount_pkr || 0),
       receivable:  Number(s.total_receivable || 0),
@@ -86,7 +87,7 @@ function buildEntries(shipments, payments, adjustments, opening) {
       received:    Number(p.amount || 0),
       receipt_url: p.receipt_url ?? null,
       awb_number: '', origin: '', destination: '', pieces: null,
-      weight: 0, net_rate: 0, clearing: 0, other: 0, form_e: 0,
+      weight: 0, net_rate: 0, clearing: 0, idc_tax: 0, other: 0, form_e: 0,
     })
   }
 
@@ -102,7 +103,7 @@ function buildEntries(shipments, payments, adjustments, opening) {
       receivable:  a.type === 'credit' ? Number(a.amount || 0) : 0,
       received:    a.type === 'debit'  ? Number(a.amount || 0) : 0,
       awb_number: '', origin: '', destination: '', pieces: null,
-      weight: 0, net_rate: 0, clearing: 0, other: 0, form_e: 0,
+      weight: 0, net_rate: 0, clearing: 0, idc_tax: 0, other: 0, form_e: 0,
     })
   }
 
@@ -124,6 +125,35 @@ function buildEntries(shipments, payments, adjustments, opening) {
 }
 
 // ── CSV export ────────────────────────────────────────────────────────────────
+
+const LEDGER_EXPORT_HEADERS = [
+  'DATE', 'AWB NO.', 'DESCRIPTION', 'ORG', 'DST', 'PCS', 'WEIGHT', 'NET RATE',
+  'AWB FEE', 'OC', 'IDC TAX', 'CLEARING CHRGS', 'RECEIVABLE', 'RECEIVED',
+  'BALANCE', 'FORM E',
+]
+
+function ledgerExportRows(entries, awbFixedFee) {
+  return entries.map((e) => [
+    fmtDate(e.date),
+    e.awb_number ?? '',
+    (e.type === 'credit' ? 'CREDIT: ' : e.type === 'debit' ? 'DEBIT: ' : '') + (e.description ?? ''),
+    e.origin ?? '',
+    e.destination ?? '',
+    e.pieces ?? '',
+    e.weight > 0 ? e.weight : '',
+    e.net_rate > 0 ? e.net_rate : '',
+    e.type === 'shipment' && awbFixedFee > 0 ? awbFixedFee : '',
+    e.other > 0 ? e.other : '',
+    e.idc_tax > 0 ? e.idc_tax : '',
+    e.type === 'shipment' && e.clearing > (e.idc_tax || 0)
+      ? e.clearing - (e.idc_tax || 0)
+      : '',
+    e.receivable > 0 ? e.receivable : '',
+    e.received > 0 ? e.received : '',
+    e.balance,
+    e.form_e > 0 ? e.form_e : '',
+  ])
+}
 
 function exportCSV(entries, clientName, isSalesReport = false, periodLabel = '', awbFixedFee = 0, client = null) {
   const clearingApplicable = client?.clearing_applicable !== false
@@ -171,34 +201,68 @@ function exportCSV(entries, clientName, isSalesReport = false, periodLabel = '',
     return
   }
 
-  const headers = ['Date', 'AWB No.', 'ORG', 'DST', 'PCS', 'Weight', 'Net Rate']
-  if (clearingApplicable) headers.push('Clearing Chrgs')
-  headers.push('Other Chrgs')
-  if (formEApplicable) headers.push('Form E')
-  headers.push('Receivable', 'Received', 'Balance', 'Description')
-  const header = headers.join(',')
-  const lines = entries.map((e) => [
-    fmtDate(e.date),
-    e.awb_number ?? '',
-    e.origin ?? '',
-    e.destination ?? '',
-    e.pieces ?? '',
-    e.weight > 0 ? e.weight.toFixed(3) : '',
-    e.net_rate > 0 ? e.net_rate : '',
-    ...(clearingApplicable ? [e.clearing > 0 ? e.clearing : ''] : []),
-    e.other > 0 ? e.other : '',
-    ...(formEApplicable ? [e.form_e > 0 ? e.form_e : ''] : []),
-    e.receivable > 0 ? e.receivable : '',
-    e.received > 0 ? e.received : '',
-    e.balance,
-    (e.type === 'credit' ? 'CREDIT: ' : e.type === 'debit' ? 'DEBIT: ' : '') + (e.description ?? ''),
-  ].map((v) => `"${v}"`).join(','))
-
-  const blob = new Blob([[header, ...lines].join('\n')], { type: 'text/csv' })
+  const csvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`
+  const rows = [LEDGER_EXPORT_HEADERS, ...ledgerExportRows(entries, awbFixedFee)]
+  const blob = new Blob([rows.map((row) => row.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' })
   const url  = URL.createObjectURL(blob)
   const a    = document.createElement('a')
   a.href     = url
   a.download = `ledger-${clientName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function exportExcel(entries, clientName, awbFixedFee) {
+  const ExcelJS = (await import('exceljs')).default
+  const workbook = new ExcelJS.Workbook()
+  const worksheet = workbook.addWorksheet('Party Ledger', { views: [{ state: 'frozen', ySplit: 3 }] })
+  const rows = ledgerExportRows(entries, awbFixedFee)
+  worksheet.mergeCells(1, 1, 1, LEDGER_EXPORT_HEADERS.length)
+  worksheet.getCell('A1').value = `M/s: ${clientName}`
+  worksheet.getCell('A1').font = { bold: true, size: 16 }
+
+  const totals = Array(LEDGER_EXPORT_HEADERS.length).fill(null)
+  totals[12] = entries.reduce((sum, entry) => sum + (Number(entry.receivable) || 0), 0)
+  totals[13] = entries.reduce((sum, entry) => sum + (Number(entry.received) || 0), 0)
+  totals[14] = entries.length ? Number(entries[entries.length - 1].balance) || 0 : 0
+  worksheet.addRow(totals)
+  worksheet.getRow(2).font = { bold: true }
+
+  worksheet.addTable({
+    name: 'PartyLedger',
+    ref: 'A3',
+    headerRow: true,
+    totalsRow: false,
+    style: { theme: 'TableStyleMedium2', showRowStripes: true },
+    columns: LEDGER_EXPORT_HEADERS.map((name) => ({ name, filterButton: true })),
+    rows,
+  })
+
+  const widths = [13, 18, 48, 9, 9, 8, 12, 12, 12, 14, 12, 18, 16, 16, 16, 14]
+  widths.forEach((width, index) => { worksheet.getColumn(index + 1).width = width })
+  for (const row of [worksheet.getRow(2), worksheet.getRow(3)]) {
+    row.eachCell((cell) => {
+      cell.alignment = { vertical: 'middle', wrapText: true }
+      cell.border = { bottom: { style: 'thin', color: { argb: 'FF9CA3AF' } } }
+    })
+  }
+  worksheet.getRow(3).height = 32
+  for (const row of worksheet.getRows(4, rows.length) ?? []) {
+    row.getCell(6).numFmt = '#,##0.000'
+    row.getCell(7).numFmt = '#,##0.00'
+    for (const column of [8, 9, 10, 11, 12, 13, 14, 15]) {
+      row.getCell(column).numFmt = '#,##0.0;[Red]-#,##0.0;-'
+    }
+  }
+  for (const column of [13, 14, 15]) {
+    worksheet.getRow(2).getCell(column).numFmt = '#,##0.0;[Red]-#,##0.0;-'
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer()
+  const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `ledger-${clientName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.xlsx`
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -514,7 +578,7 @@ export default function Ledgers() {
           received:    0,
           balance:     carryBalance,
           awb_number: '', origin: '', destination: '', pieces: null,
-          weight: 0, net_rate: 0, clearing: 0, other: 0, form_e: 0,
+          weight: 0, net_rate: 0, clearing: 0, idc_tax: 0, other: 0, form_e: 0,
         },
         ...inRange,
       ]
@@ -739,6 +803,17 @@ export default function Ledgers() {
             >
               <Download className="w-4 h-4" />{viewMode === 'sales' ? 'Export Sales CSV' : 'Export CSV'}
             </Button>
+            {viewMode !== 'sales' && (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="sm:text-sm sm:px-4 sm:py-2"
+                disabled={!client}
+                onClick={() => exportExcel(displayEntries, client?.name ?? 'client', awbFixedFee)}
+              >
+                <FileSpreadsheet className="w-4 h-4" /> Export Excel
+              </Button>
+            )}
             <Button
               variant="secondary"
               size="sm"
