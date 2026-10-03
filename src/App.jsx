@@ -8,6 +8,7 @@ import Login          from './pages/Login'
 import Unauthorized   from './pages/Unauthorized'
 import Dashboard      from './pages/Dashboard'
 import Shipments      from './pages/Shipments'
+import FblBookings    from './pages/FblBookings'
 import StockManagement from './pages/StockManagement'
 import PartyManagement from './pages/PartyManagement'
 import Invoices       from './pages/Invoices'
@@ -45,6 +46,7 @@ export default function App() {
       {/* Protected — wrapped in AppShell + role guard */}
       <Route path="/"           element={<Shell path="/"><Dashboard /></Shell>} />
       <Route path="/shipments"  element={<Shell path="/shipments"><Shipments /></Shell>} />
+      <Route path="/fbl-bookings" element={<Shell path="/fbl-bookings"><FblBookings /></Shell>} />
       <Route path="/stock"      element={<Shell path="/stock"><StockManagement /></Shell>} />
       <Route path="/parties"    element={<Shell path="/parties"><PartyManagement /></Shell>} />
       <Route path="/invoices"   element={<Shell path="/invoices"><Invoices /></Shell>} />

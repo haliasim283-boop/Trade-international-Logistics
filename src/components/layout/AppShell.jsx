@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { LowStockAlert } from './LowStockAlert'
+import { FblAlarmMonitor } from './FblAlarmMonitor'
 
 export function AppShell({ children }) {
   const [collapsed, setCollapsed] = useState(() => {
@@ -38,6 +39,7 @@ export function AppShell({ children }) {
       >
         <Topbar onMenuClick={() => setMobileOpen(true)} />
         <LowStockAlert />
+        <FblAlarmMonitor />
         <main className="flex-1 p-4 sm:p-6 overflow-auto">
           {children}
         </main>

@@ -14,11 +14,13 @@ import {
   Settings,
   UserCog,
   Package,
+  AlarmClock,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
   { icon: LayoutDashboard, label: 'Dashboard',              path: '/',          phase: null },
   { icon: Plane,           label: 'Master Shipment Log',    path: '/shipments', phase: 4 },
+  { icon: AlarmClock,      label: 'PIA Booking Alarms',      path: '/fbl-bookings', phase: null },
   { icon: Package,         label: 'Stock Management',       path: '/stock',     phase: null },
   { icon: Users,           label: 'Party Management',       path: '/parties',   phase: 3 },
   { icon: FileText,        label: 'Invoices',               path: '/invoices',  phase: 6 },
@@ -38,6 +40,7 @@ export const NAV_ITEMS = [
 export const ROUTE_ACCESS = {
   '/':             ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
   '/shipments':    ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
+  '/fbl-bookings': ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
   '/stock':        ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
   '/parties':      ['Admin','Manager','Data Entry','Report Viewer','Invoice Agent'],
   '/invoices':     ['Admin','Manager','Report Viewer','Invoice Agent'],
